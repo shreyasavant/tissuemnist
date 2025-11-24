@@ -1,0 +1,26 @@
+# Core ML Frameworks
+# TensorFlow for CNN implementation
+tensorflow>=2.20.0
+
+# PyTorch for ViT implementation
+torch>=2.9.0
+torchvision>=0.24.0
+transformers>=4.57.1
+
+# Data Processing
+numpy>=2.0.0
+pillow>=12.0.0
+
+# Visualization
+matplotlib>=3.10.0
+seaborn>=0.13.0
+
+# Evaluation Metrics
+scikit-learn>=1.7.0
+
+# Configuration (for environment variables)
+python-dotenv>=1.2.0
+
+# Optional: Jupyter Notebook Support (for visualize_results.ipynb)
+# jupyter>=1.0.0
+# notebook>=7.0.0

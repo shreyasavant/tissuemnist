@@ -1,0 +1,139 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+.ENV/
+
+# PyTorch / Model Files
+*.pt
+*.pth
+*.pkl
+*.ckpt
+*.h5
+*.hdf5
+*.onnx
+*.tflite
+
+# Model Directories
+saved_models/
+saved_models_comparative/
+models/
+checkpoints/
+weights/
+
+# Dataset Directories
+mnist_dataset/
+dataset/
+datasets/
+data/
+*.csv
+*.tsv
+*.parquet
+
+# Results and Output
+results/
+results_comparative/
+outputs/
+logs/
+*.log
+*.txt
+!requirements.txt
+!README.txt
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+*.cover
+*.py,cover
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Temporary Files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# Plot/Image Outputs (optional - uncomment if you don't want to track generated plots)
+# *.png
+# *.jpg
+# *.jpeg
+# *.pdf
+# *.svg
+
+# Large files
+*.zip
+*.tar.gz
+*.rar
+
+# MacOS
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Project Specific
+wandb/
+mlruns/
+.neptune/
+
