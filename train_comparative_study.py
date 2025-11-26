@@ -1,18 +1,22 @@
 """
-Comparative Study Training and Testing Framework
-================================================
+Comparative Study Training and Testing Framework for TissueMNIST
+================================================================
 This script trains and evaluates multiple CNN and Transformer models
-on TissueMNIST dataset for comparative analysis.
+on TissueMNIST dataset (8 classes) for comparative analysis.
 
 Models included:
 - CNN: ResNet18, ResNet50, DenseNet121, EfficientNet-B0
 - Transformers: ViT-B/16, Swin-Tiny, Swin-Base
+
+Optimized for TissueMNIST dataset.
 """
 
 import os
 import sys
 import warnings
 import json
+import csv
+import random
 from datetime import datetime
 from pathlib import Path
 
@@ -20,16 +24,27 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.utils.data as data
+from torch.utils.data import random_split
 import torchvision.transforms as transforms
+from torch.cuda.amp import autocast, GradScaler
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from PIL import Image
+from sklearn.metrics import confusion_matrix, classification_report
+from torch.utils.tensorboard import SummaryWriter
+from thop import profile
 
 import medmnist
-from medmnist import INFO, Evaluator
+from medmnist import Evaluator
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Import models from tissue_main.py
 from tissue_main import (
+    ResNet18Classifier,
     ResNet50Classifier,
     DenseNet121Classifier,
     EfficientNetClassifier,
@@ -40,74 +55,153 @@ from tissue_main import (
 # Suppress warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='tqdm')
 
-# ============================================================================
-# Configuration
-# ============================================================================
+# Reproducibility
+def set_seed(seed=42):
+    """Set random seeds for reproducibility"""
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+# Configuration - Optimized for TissueMNIST
+# TissueMNIST constants
+TISSUEMNIST_NUM_CLASSES = 8
+TISSUEMNIST_TASK = 'multi-class'
+TISSUEMNIST_LABELS = [
+    'Collecting Duct, Connecting Tubule',
+    'Distal Convoluted Tubule',
+    'Glomerular endothelial cells',
+    'Interstitial endothelial cells',
+    'Leukocytes',
+    'Podocytes',
+    'Proximal Tubule Segments',
+    'Thick Ascending Limb'
+]
+
 class Config:
-    # Dataset
-    DATA_FLAG = 'tissuemnist'
-    DATASET_PATH = None  # Will be auto-detected
-    IMAGE_SIZE = 224
-    BATCH_SIZE = 128
+    """Configuration class that reads from environment variables with fallback to defaults"""
+    
+    # Helper method to get env var with type conversion
+    @staticmethod
+    def _get_env(key, default, type_func=str):
+        value = os.getenv(key)
+        if value is None:
+            return default
+        if type_func == bool:
+            return value.lower() in ('true', '1', 'yes', 'on')
+        if type_func == list:
+            return [item.strip() for item in value.split(',') if item.strip()]
+        return type_func(value)
+    
+    # Dataset (TissueMNIST-specific)
+    DATASET_PATH = _get_env('DATASET_PATH', 'mnist_dataset', str)
+    IMAGE_SIZE = _get_env('IMAGE_SIZE', 224, int)
+    BATCH_SIZE = _get_env('BATCH_SIZE', 128, int)
     
     # Training
-    NUM_EPOCHS = 10
-    LEARNING_RATE = 0.001
-    MOMENTUM = 0.9
-    WEIGHT_DECAY = 1e-4
-    USE_PRETRAINED = True
+    NUM_EPOCHS = _get_env('NUM_EPOCHS', 10, int)
+    LEARNING_RATE = _get_env('LEARNING_RATE', 0.001, float)
+    MOMENTUM = _get_env('MOMENTUM', 0.9, float)
+    WEIGHT_DECAY = _get_env('WEIGHT_DECAY', 1e-4, float)
+    USE_PRETRAINED = _get_env('USE_PRETRAINED', True, bool)
+    
+    # Early stopping
+    EARLY_STOPPING_PATIENCE = _get_env('EARLY_STOPPING_PATIENCE', 3, int)
+    EARLY_STOPPING_MIN_DELTA = _get_env('EARLY_STOPPING_MIN_DELTA', 0.001, float)
     
     # Model saving
-    SAVE_MODELS = True
-    MODEL_SAVE_DIR = 'saved_models_comparative'
-    RESULTS_DIR = 'results_comparative'
+    SAVE_MODELS = _get_env('SAVE_MODELS', True, bool)
+    MODEL_SAVE_DIR = _get_env('MODEL_SAVE_DIR', 'saved_models_comparative', str)
+    RESULTS_DIR = _get_env('RESULTS_DIR', 'results_comparative', str)
+    
+    # Research paper deliverables
+    SAVE_PAPER_DELIVERABLES = _get_env('SAVE_PAPER_DELIVERABLES', True, bool)
+    PAPER_DIR = _get_env('PAPER_DIR', 'paper_deliverables', str)
+    
+    # TensorBoard
+    TENSORBOARD_LOG_DIR = _get_env('TENSORBOARD_LOG_DIR', 'runs', str)
+    ENABLE_TENSORBOARD = _get_env('ENABLE_TENSORBOARD', True, bool)
     
     # Device
-    DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    _device_str = _get_env('DEVICE', 'auto', str)
+    if _device_str == 'auto':
+        DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    else:
+        DEVICE = torch.device(_device_str)
     
     # Models to train (can be modified to train subset)
-    MODELS_TO_TRAIN = [
-        'ResNet50',
-        'DenseNet121',
-        'EfficientNet-B0',
-        'ViT-B/16',
-        'Swin-Tiny',
-        'Swin-Base'
-    ]
+    _models_str = _get_env('MODELS_TO_TRAIN', None, list)
+    if _models_str:
+        MODELS_TO_TRAIN = _models_str
+    else:
+        MODELS_TO_TRAIN = [
+            'ResNet18',
+            'ResNet50',
+            'DenseNet121',
+            'EfficientNet-B0',
+            'ViT-B/16',
+            'Swin-Tiny',
+            'Swin-Base'
+        ]
+    
+    # DataLoader settings
+    NUM_WORKERS = _get_env('NUM_WORKERS', None, int)  # Will be set based on CUDA availability if None
+    PIN_MEMORY = _get_env('PIN_MEMORY', None, bool)  # Will be set based on CUDA availability if None
+    
+    # Advanced settings
+    TRAIN_VAL_SPLIT = _get_env('TRAIN_VAL_SPLIT', 0.8, float)
+    USE_MIXED_PRECISION = _get_env('USE_MIXED_PRECISION', True, bool)
+    GRADIENT_CLIP_NORM = _get_env('GRADIENT_CLIP_NORM', 1.0, float)
+    
+    # Reproducibility
+    RANDOM_SEED = _get_env('RANDOM_SEED', 42, int)
+    
+    # Verbose output
+    VERBOSE = _get_env('VERBOSE', True, bool)
 
-# ============================================================================
 # Data Loading
-# ============================================================================
+def to_pil_image_safe(img):
+    """Convert to PIL Image if not already PIL (picklable function for multiprocessing)"""
+    if isinstance(img, Image.Image):
+        return img
+    return transforms.ToPILImage()(img)
+
+def convert_to_rgb(img):
+    """Convert PIL image to RGB format if not already RGB (picklable function for multiprocessing)"""
+    if img.mode != "RGB":
+        return img.convert("RGB")
+    return img
+
 def get_data_transform():
-    """Get data transformation for pretrained models"""
+    """Get data transformation for pretrained models
+    """
     return transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x),  # Grayscale to RGB
+        transforms.Lambda(to_pil_image_safe),  # Convert to PIL Image (handles both PIL and numpy arrays)
+        transforms.Lambda(convert_to_rgb),  # Convert to RGB format
+        transforms.ToTensor(),  # Convert to tensor
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # ImageNet normalization
     ])
 
-def load_dataset(config):
-    """Load TissueMNIST dataset"""
-    info = INFO[config.DATA_FLAG]
-    DataClass = getattr(medmnist, info['python_class'])
+def load_tissuemnist(config):
+    """Load TissueMNIST dataset - optimized for this specific dataset"""
+    from medmnist import TissueMNIST
     
-    # Determine dataset path
-    current_dir = os.getcwd()
-    if 'notebooks' in current_dir:
-        project_root = os.path.dirname(current_dir)
-    else:
-        project_root = current_dir
-    
-    dataset_path = os.path.join(project_root, 'mnist_dataset')
+    # Determine dataset path (simplified)
+    dataset_path = config.DATASET_PATH
     if not os.path.exists(dataset_path):
-        # Try alternative path
-        dataset_path = os.path.join(project_root, 'dataset')
+        # Try project root if running from subdirectory
+        project_root = os.path.dirname(os.getcwd()) if 'notebooks' in os.getcwd() else os.getcwd()
+        dataset_path = os.path.join(project_root, config.DATASET_PATH)
         if not os.path.exists(dataset_path):
-            print(f"Warning: Dataset path not found. Using default: {dataset_path}")
+            raise FileNotFoundError(f"TissueMNIST dataset not found at {dataset_path}. "
+                                  f"Please ensure the dataset is downloaded.")
     
     data_transform = get_data_transform()
     
-    train_dataset = DataClass(
+    # Load TissueMNIST datasets
+    train_dataset = TissueMNIST(
         split='train',
         transform=data_transform,
         download=False,
@@ -116,7 +210,7 @@ def load_dataset(config):
         mmap_mode='r'
     )
     
-    test_dataset = DataClass(
+    test_dataset = TissueMNIST(
         split='test',
         transform=data_transform,
         download=False,
@@ -125,101 +219,255 @@ def load_dataset(config):
         mmap_mode='r'
     )
     
+    # Split training data into train/val (configurable split)
+    train_size = int(config.TRAIN_VAL_SPLIT * len(train_dataset))
+    val_size = len(train_dataset) - train_size
+    train_split, val_split = random_split(train_dataset, [train_size, val_size])
+    
+    # Optimized DataLoaders
+    # Use config values if set, otherwise use defaults based on CUDA availability
+    if config.NUM_WORKERS is not None:
+        num_workers = config.NUM_WORKERS
+    else:
+        num_workers = 4 if torch.cuda.is_available() else 0
+    
+    if config.PIN_MEMORY is not None:
+        pin_memory = config.PIN_MEMORY
+    else:
+        pin_memory = torch.cuda.is_available()
+    
     train_loader = data.DataLoader(
-        dataset=train_dataset,
+        dataset=train_split,
         batch_size=config.BATCH_SIZE,
         shuffle=True,
-        num_workers=2 if torch.cuda.is_available() else 0
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=num_workers > 0
+    )
+    
+    val_loader = data.DataLoader(
+        dataset=val_split,
+        batch_size=config.BATCH_SIZE,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=num_workers > 0
     )
     
     test_loader = data.DataLoader(
         dataset=test_dataset,
         batch_size=config.BATCH_SIZE,
         shuffle=False,
-        num_workers=2 if torch.cuda.is_available() else 0
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=num_workers > 0
     )
     
-    return train_loader, test_loader, info
+    # Create info dict for compatibility
+    info = {
+        'label': TISSUEMNIST_LABELS,
+        'task': TISSUEMNIST_TASK,
+        'n_channels': 1  # TissueMNIST is grayscale
+    }
+    
+    return train_loader, val_loader, test_loader, info
 
-# ============================================================================
+# Model Analysis
+def analyze_model(model, device, input_shape=(1, 3, 224, 224), skip_flops=False):
+    """Analyze model FLOPs and parameters using thop
+    
+    Args:
+        model: Model to analyze
+        device: Device to run analysis on
+        input_shape: Input shape for FLOPs calculation
+        skip_flops: If True, skip FLOPs calculation (faster, only count parameters)
+    """
+    # Count parameters (always fast)
+    params = sum(p.numel() for p in model.parameters())
+    
+    # Skip FLOPs if requested (useful for transformer models which are slow)
+    if skip_flops:
+        return None, params / 1e6
+    
+    # Try to calculate FLOPs (can be slow for large models)
+    try:
+        dummy_input = torch.randn(input_shape).to(device)
+        flops, params_calc = profile(model, inputs=(dummy_input,), verbose=False)
+        return flops / 1e9, params / 1e6  # Convert to billions and millions
+    except Exception as e:
+        # Fallback to simple parameter count if FLOPs calculation fails
+        return None, params / 1e6
+
 # Model Initialization
-# ============================================================================
-def create_models(config, num_classes):
-    """Create all models for comparative study"""
+def create_models(config):
+    """Create all models for TissueMNIST (8 classes) - optimized"""
     models = {}
+    num_classes = TISSUEMNIST_NUM_CLASSES
+    
+    total_models = len(config.MODELS_TO_TRAIN)
+    model_count = 0
+    print(f"Creating {total_models} models...")
+    
+    if 'ResNet18' in config.MODELS_TO_TRAIN:
+        model_count += 1
+        print(f"  [{model_count}/{total_models}] Creating ResNet18...", end=' ', flush=True)
+        model = ResNet18Classifier(
+            num_classes=num_classes,
+            pretrained=config.USE_PRETRAINED
+        ).to(config.DEVICE)
+        flops, params = analyze_model(model, config.DEVICE)
+        if flops is not None:
+            print(f"✓ FLOPs: {flops:.2f}B, Parameters: {params:.2f}M")
+        else:
+            print(f"✓ Parameters: {params:.2f}M")
+        models['ResNet18'] = model
     
     if 'ResNet50' in config.MODELS_TO_TRAIN:
-        models['ResNet50'] = ResNet50Classifier(
+        model_count += 1
+        print(f"  [{model_count}/{total_models}] Creating ResNet50...", end=' ', flush=True)
+        model = ResNet50Classifier(
             num_classes=num_classes,
             pretrained=config.USE_PRETRAINED
         ).to(config.DEVICE)
+        flops, params = analyze_model(model, config.DEVICE)
+        if flops is not None:
+            print(f"✓ FLOPs: {flops:.2f}B, Parameters: {params:.2f}M")
+        else:
+            print(f"✓ Parameters: {params:.2f}M")
+        models['ResNet50'] = model
     
     if 'DenseNet121' in config.MODELS_TO_TRAIN:
-        models['DenseNet121'] = DenseNet121Classifier(
+        model_count += 1
+        print(f"  [{model_count}/{total_models}] Creating DenseNet121...", end=' ', flush=True)
+        model = DenseNet121Classifier(
             num_classes=num_classes,
             pretrained=config.USE_PRETRAINED
         ).to(config.DEVICE)
+        flops, params = analyze_model(model, config.DEVICE)
+        if flops is not None:
+            print(f"✓ FLOPs: {flops:.2f}B, Parameters: {params:.2f}M")
+        else:
+            print(f"✓ Parameters: {params:.2f}M")
+        models['DenseNet121'] = model
     
     if 'EfficientNet-B0' in config.MODELS_TO_TRAIN:
-        models['EfficientNet-B0'] = EfficientNetClassifier(
+        model_count += 1
+        print(f"  [{model_count}/{total_models}] Creating EfficientNet-B0...", end=' ', flush=True)
+        model = EfficientNetClassifier(
             num_classes=num_classes,
             pretrained=config.USE_PRETRAINED
         ).to(config.DEVICE)
+        flops, params = analyze_model(model, config.DEVICE)
+        if flops is not None:
+            print(f"✓ FLOPs: {flops:.2f}B, Parameters: {params:.2f}M")
+        else:
+            print(f"✓ Parameters: {params:.2f}M")
+        models['EfficientNet-B0'] = model
     
     if 'ViT-B/16' in config.MODELS_TO_TRAIN:
-        models['ViT-B/16'] = ViTClassifier(
+        model_count += 1
+        print(f"  [{model_count}/{total_models}] Creating ViT-B/16...", end=' ', flush=True)
+        model = ViTClassifier(
             num_classes=num_classes,
             model_name="google/vit-base-patch16-224",
             pretrained=config.USE_PRETRAINED
         ).to(config.DEVICE)
+        # Skip FLOPs for transformer models (too slow)
+        flops, params = analyze_model(model, config.DEVICE, skip_flops=True)
+        print(f"✓ Parameters: {params:.2f}M")
+        models['ViT-B/16'] = model
     
     if 'Swin-Tiny' in config.MODELS_TO_TRAIN:
-        models['Swin-Tiny'] = SwinTransformerClassifier(
+        model_count += 1
+        print(f"  [{model_count}/{total_models}] Creating Swin-Tiny...", end=' ', flush=True)
+        model = SwinTransformerClassifier(
             num_classes=num_classes,
             model_name="microsoft/swin-tiny-patch4-window7-224",
             pretrained=config.USE_PRETRAINED
         ).to(config.DEVICE)
+        # Skip FLOPs for transformer models (too slow)
+        flops, params = analyze_model(model, config.DEVICE, skip_flops=True)
+        print(f"✓ Parameters: {params:.2f}M")
+        models['Swin-Tiny'] = model
     
     if 'Swin-Base' in config.MODELS_TO_TRAIN:
-        models['Swin-Base'] = SwinTransformerClassifier(
+        model_count += 1
+        print(f"  [{model_count}/{total_models}] Creating Swin-Base...", end=' ', flush=True)
+        model = SwinTransformerClassifier(
             num_classes=num_classes,
             model_name="microsoft/swin-base-patch4-window7-224",
             pretrained=config.USE_PRETRAINED
         ).to(config.DEVICE)
+        # Skip FLOPs for transformer models (too slow)
+        flops, params = analyze_model(model, config.DEVICE, skip_flops=True)
+        print(f"✓ Parameters: {params:.2f}M")
+        models['Swin-Base'] = model
     
+    print()  # Empty line after all models created
     return models
 
-# ============================================================================
+# Early Stopping
+class EarlyStopper:
+    """Early stopping utility to stop training when validation loss stops improving"""
+    def __init__(self, patience=3, min_delta=0.001):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.counter = 0
+        self.best_loss = None
+    
+    def early_stop(self, val_loss):
+        if self.best_loss is None:
+            self.best_loss = val_loss
+        elif val_loss > self.best_loss - self.min_delta:
+            self.counter += 1
+            if self.counter >= self.patience:
+                return True
+        else:
+            self.best_loss = val_loss
+            self.counter = 0
+        return False
+
 # Training Functions
-# ============================================================================
-def train_epoch(model, train_loader, criterion, optimizer, device, task):
-    """Train for one epoch"""
+def train_epoch(model, train_loader, criterion, optimizer, device, scaler=None, gradient_clip_norm=1.0):
+    """Train for one epoch - optimized for TissueMNIST (multi-class)
+    
+    Args:
+        scaler: GradScaler instance for mixed precision training (None for FP32)
+        gradient_clip_norm: Maximum norm for gradient clipping
+    """
     model.train()
     running_loss = 0.0
     correct = 0
     total = 0
     
+    use_mixed_precision = scaler is not None
+    
     for inputs, targets in train_loader:
-        inputs = inputs.to(device)
-        targets = targets.to(device)
+        inputs = inputs.to(device, non_blocking=True)
+        targets = targets.squeeze().long().to(device, non_blocking=True)
         
         optimizer.zero_grad()
-        outputs = model(inputs)
         
-        if task == 'multi-label, binary-class':
-            targets = targets.to(torch.float32)
-            loss = criterion(outputs, targets)
-            pred = (torch.sigmoid(outputs) > 0.5).int()
-            correct += (pred == targets.int()).all(dim=1).sum().item()
+        if use_mixed_precision:
+            # Mixed precision training for ViT/Swin models
+            with autocast():
+                outputs = model(inputs)
+                loss = criterion(outputs, targets)
+            
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip_norm)
+            scaler.step(optimizer)
+            scaler.update()
         else:
-            targets = targets.squeeze().long()
+            # Standard FP32 training for CNN models
+            outputs = model(inputs)
             loss = criterion(outputs, targets)
-            _, pred = torch.max(outputs, 1)
-            correct += (pred == targets).sum().item()
+            loss.backward()
+            optimizer.step()
         
-        loss.backward()
-        optimizer.step()
-        
+        _, pred = torch.max(outputs, 1)
+        correct += (pred == targets).sum().item()
         running_loss += loss.item()
         total += targets.size(0)
     
@@ -228,8 +476,12 @@ def train_epoch(model, train_loader, criterion, optimizer, device, task):
     
     return epoch_loss, epoch_acc
 
-def evaluate(model, data_loader, criterion, device, task):
-    """Evaluate model on dataset"""
+def evaluate(model, data_loader, criterion, device, use_mixed_precision=False):
+    """Evaluate model on dataset - optimized for TissueMNIST (multi-class)
+    
+    Args:
+        use_mixed_precision: If True, use FP16 mixed precision evaluation (for ViT/Swin models)
+    """
     model.eval()
     running_loss = 0.0
     correct = 0
@@ -237,22 +489,19 @@ def evaluate(model, data_loader, criterion, device, task):
     
     with torch.no_grad():
         for inputs, targets in data_loader:
-            inputs = inputs.to(device)
-            targets = targets.to(device)
+            inputs = inputs.to(device, non_blocking=True)
+            targets = targets.squeeze().long().to(device, non_blocking=True)
             
-            outputs = model(inputs)
-            
-            if task == 'multi-label, binary-class':
-                targets = targets.to(torch.float32)
-                loss = criterion(outputs, targets)
-                pred = (torch.sigmoid(outputs) > 0.5).int()
-                correct += (pred == targets.int()).all(dim=1).sum().item()
+            if use_mixed_precision:
+                with autocast():
+                    outputs = model(inputs)
+                    loss = criterion(outputs, targets)
             else:
-                targets = targets.squeeze().long()
+                outputs = model(inputs)
                 loss = criterion(outputs, targets)
-                _, pred = torch.max(outputs, 1)
-                correct += (pred == targets).sum().item()
             
+            _, pred = torch.max(outputs, 1)
+            correct += (pred == targets).sum().item()
             running_loss += loss.item()
             total += targets.size(0)
     
@@ -261,11 +510,16 @@ def evaluate(model, data_loader, criterion, device, task):
     
     return epoch_loss, epoch_acc
 
-def train_model(model, model_name, train_loader, test_loader, config, task, criterion):
+def train_model(model, model_name, train_loader, val_loader, test_loader, config, criterion):
     """Train a single model"""
     print(f"\n{'='*70}")
     print(f"Training {model_name}")
     print(f"{'='*70}")
+    
+    # Determine if model should use mixed precision (ViT and Swin models)
+    use_mixed_precision = model_name in ['ViT-B/16', 'Swin-Tiny', 'Swin-Base']
+    if use_mixed_precision:
+        print("Using mixed precision training (FP16) for faster training")
     
     # Count parameters
     num_params = sum(p.numel() for p in model.parameters())
@@ -281,6 +535,17 @@ def train_model(model, model_name, train_loader, test_loader, config, task, crit
         weight_decay=config.WEIGHT_DECAY
     )
     
+    # Initialize scaler for mixed precision training (only for ViT/Swin models)
+    scaler = GradScaler() if use_mixed_precision else None
+    
+    # Initialize early stopper
+    early_stopper = EarlyStopper(patience=3, min_delta=0.001)
+    
+    # Initialize TensorBoard writer
+    print("Initializing TensorBoard writer...", end=' ', flush=True)
+    writer = SummaryWriter(f'runs/{model_name}')
+    print("✓")
+    
     # Training history
     history = {
         'train_losses': [],
@@ -292,16 +557,31 @@ def train_model(model, model_name, train_loader, test_loader, config, task, crit
     best_test_acc = 0.0
     best_epoch = 0
     
+    # Test DataLoader before training (helps identify hangs)
+    print("Testing DataLoader (fetching first batch)...", end=' ', flush=True)
+    try:
+        first_batch = next(iter(train_loader))
+        print(f"✓ (batch size: {first_batch[0].shape[0]})")
+    except Exception as e:
+        print(f"✗ Error: {e}")
+        raise
+    
     # Training loop
+    print("Starting training...")
     for epoch in range(config.NUM_EPOCHS):
         # Train
         train_loss, train_acc = train_epoch(
-            model, train_loader, criterion, optimizer, config.DEVICE, task
+            model, train_loader, criterion, optimizer, config.DEVICE, scaler, config.GRADIENT_CLIP_NORM
         )
         
-        # Evaluate
+        # Evaluate on validation set
+        val_loss, val_acc = evaluate(
+            model, val_loader, criterion, config.DEVICE, use_mixed_precision
+        )
+        
+        # Evaluate on test set (for monitoring, but use val for early stopping)
         test_loss, test_acc = evaluate(
-            model, test_loader, criterion, config.DEVICE, task
+            model, test_loader, criterion, config.DEVICE, use_mixed_precision
         )
         
         # Update history
@@ -310,17 +590,38 @@ def train_model(model, model_name, train_loader, test_loader, config, task, crit
         history['test_losses'].append(test_loss)
         history['test_accuracies'].append(test_acc)
         
-        # Track best model
-        if test_acc > best_test_acc:
-            best_test_acc = test_acc
+        # Track best model based on validation accuracy
+        if val_acc > best_test_acc:
+            best_test_acc = val_acc
             best_epoch = epoch + 1
+        
+        # Log to TensorBoard
+        if writer is not None:
+            writer.add_scalar(f'{model_name}/Loss/train', train_loss, epoch)
+            writer.add_scalar(f'{model_name}/Loss/val', val_loss, epoch)
+            writer.add_scalar(f'{model_name}/Loss/test', test_loss, epoch)
+            writer.add_scalar(f'{model_name}/Accuracy/train', train_acc, epoch)
+            writer.add_scalar(f'{model_name}/Accuracy/val', val_acc, epoch)
+            writer.add_scalar(f'{model_name}/Accuracy/test', test_acc, epoch)
         
         # Print progress
         print(f"Epoch {epoch+1}/{config.NUM_EPOCHS}:")
         print(f"  Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%")
+        print(f"  Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%")
         print(f"  Test Loss: {test_loss:.4f}, Test Acc: {test_acc:.2f}%")
-        print(f"  Best Test Acc: {best_test_acc:.2f}% (Epoch {best_epoch})")
+        print(f"  Best Val Acc: {best_test_acc:.2f}% (Epoch {best_epoch})")
         print("-" * 70)
+        
+        # Early stopping check (use validation loss)
+        if early_stopper.early_stop(val_loss):
+            print(f"\nEarly stopping triggered at epoch {epoch+1}")
+            print(f"Best validation loss: {early_stopper.best_loss:.4f}")
+            print(f"Stopped after {early_stopper.counter} epochs without improvement")
+            break
+    
+    # Close TensorBoard writer
+    if writer is not None:
+        writer.close()
     
     history['best_test_accuracy'] = best_test_acc
     history['best_epoch'] = best_epoch
@@ -328,19 +629,39 @@ def train_model(model, model_name, train_loader, test_loader, config, task, crit
     
     return history
 
-# ============================================================================
+# Evaluation with Metrics
+def evaluate_with_metrics(model, data_loader, device, num_classes):
+    """Evaluate model and return confusion matrix and classification report"""
+    model.eval()
+    all_preds = []
+    all_targets = []
+    
+    with torch.no_grad():
+        for inputs, targets in data_loader:
+            inputs = inputs.to(device, non_blocking=True)
+            outputs = model(inputs)
+            preds = torch.argmax(outputs, dim=1)
+            
+            all_preds.extend(preds.cpu().numpy())
+            all_targets.extend(targets.squeeze().cpu().numpy())
+    
+    cm = confusion_matrix(all_targets, all_preds)
+    report = classification_report(all_targets, all_preds, 
+                                   target_names=TISSUEMNIST_LABELS)
+    
+    return cm, report
+
 # Evaluation with MedMNIST Evaluator
-# ============================================================================
-def evaluate_with_medmnist(model, model_name, data_loader, split, device, task, data_flag):
-    """Evaluate using MedMNIST evaluator"""
+def evaluate_with_medmnist(model, model_name, data_loader, split, device):
+    """Evaluate using MedMNIST evaluator - optimized for TissueMNIST"""
     model.eval()
     y_true = torch.tensor([])
     y_score = torch.tensor([])
     
     with torch.no_grad():
         for inputs, targets in data_loader:
-            inputs = inputs.to(device)
-            targets = targets.to(device)
+            inputs = inputs.to(device, non_blocking=True)
+            targets = targets.to(device, non_blocking=True)
             
             outputs = model(inputs)
             outputs = outputs.softmax(dim=-1)
@@ -353,7 +674,7 @@ def evaluate_with_medmnist(model, model_name, data_loader, split, device, task, 
     y_score = y_score.detach().numpy()
     y_true = y_true.detach().numpy()
     
-    evaluator = Evaluator(data_flag, split, size=224)
+    evaluator = Evaluator('tissuemnist', split, size=224)
     try:
         metrics = evaluator.evaluate(y_score, y_true)
     except TypeError:
@@ -364,9 +685,7 @@ def evaluate_with_medmnist(model, model_name, data_loader, split, device, task, 
     
     return metrics
 
-# ============================================================================
 # Visualization
-# ============================================================================
 def plot_training_curves(all_histories, config, save_path):
     """Plot training curves for all models"""
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
@@ -457,25 +776,24 @@ def plot_accuracy_curves(all_histories, config, save_path):
     plt.close()
     print(f"✓ Saved accuracy curves to {save_path}")
 
-# ============================================================================
 # Results Saving
-# ============================================================================
-def save_results(all_histories, all_metrics, config, info):
-    """Save all results to JSON and generate report"""
+def save_results(all_histories, all_metrics, config):
+    """Save all results to JSON and generate report - optimized for TissueMNIST"""
     os.makedirs(config.RESULTS_DIR, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     
     # Prepare results dictionary
     results = {
         'timestamp': timestamp,
+        'dataset': 'TissueMNIST',
         'config': {
-            'data_flag': config.DATA_FLAG,
             'num_epochs': config.NUM_EPOCHS,
             'batch_size': config.BATCH_SIZE,
             'learning_rate': config.LEARNING_RATE,
             'use_pretrained': config.USE_PRETRAINED,
-            'num_classes': len(info['label']),
-            'task': info['task']
+            'num_classes': TISSUEMNIST_NUM_CLASSES,
+            'task': TISSUEMNIST_TASK,
+            'labels': TISSUEMNIST_LABELS
         },
         'models': {}
     }
@@ -499,12 +817,13 @@ def save_results(all_histories, all_metrics, config, info):
     report_path = os.path.join(config.RESULTS_DIR, f'report_{timestamp}.txt')
     with open(report_path, 'w') as f:
         f.write("="*70 + "\n")
-        f.write("COMPARATIVE STUDY RESULTS REPORT\n")
+        f.write("TISSUEMNIST COMPARATIVE STUDY RESULTS REPORT\n")
         f.write("="*70 + "\n\n")
         f.write(f"Timestamp: {timestamp}\n")
-        f.write(f"Dataset: {config.DATA_FLAG}\n")
-        f.write(f"Number of Classes: {len(info['label'])}\n")
-        f.write(f"Task Type: {info['task']}\n")
+        f.write(f"Dataset: TissueMNIST\n")
+        f.write(f"Number of Classes: {TISSUEMNIST_NUM_CLASSES}\n")
+        f.write(f"Task Type: {TISSUEMNIST_TASK}\n")
+        f.write(f"Classes: {', '.join(TISSUEMNIST_LABELS)}\n")
         f.write(f"Number of Epochs: {config.NUM_EPOCHS}\n")
         f.write(f"Batch Size: {config.BATCH_SIZE}\n")
         f.write(f"Learning Rate: {config.LEARNING_RATE}\n")
@@ -536,9 +855,232 @@ def save_results(all_histories, all_metrics, config, info):
     
     return json_path, report_path
 
-# ============================================================================
+# Research Paper Deliverables
+def save_performance_table(all_histories, all_metrics, config, timestamp):
+    """Save performance comparison table in CSV and LaTeX formats"""
+    paper_dir = os.path.join(config.RESULTS_DIR, config.PAPER_DIR)
+    os.makedirs(paper_dir, exist_ok=True)
+    
+    # Prepare table data
+    table_data = []
+    sorted_models = sorted(
+        all_histories.items(),
+        key=lambda x: x[1]['best_test_accuracy'],
+        reverse=True
+    )
+    
+    for rank, (model_name, history) in enumerate(sorted_models, 1):
+        metrics = all_metrics[model_name]
+        table_data.append({
+            'Rank': rank,
+            'Model': model_name,
+            'Parameters (M)': f"{history['num_parameters']/1e6:.2f}",
+            'Best Test Acc (%)': f"{history['best_test_accuracy']:.2f}",
+            'Final Test Acc (%)': f"{history['test_accuracies'][-1]:.2f}",
+            'Final Train Acc (%)': f"{history['train_accuracies'][-1]:.2f}",
+            'Test AUC': f"{metrics[0]:.3f}",
+            'Test Accuracy': f"{metrics[1]:.3f}",
+            'Best Epoch': history['best_epoch']
+        })
+    
+    # Save CSV
+    csv_path = os.path.join(paper_dir, f'performance_table_{timestamp}.csv')
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=table_data[0].keys())
+        writer.writeheader()
+        writer.writerows(table_data)
+    print(f"✓ Saved performance table (CSV) to {csv_path}")
+    
+    # Save LaTeX table
+    latex_path = os.path.join(paper_dir, f'performance_table_{timestamp}.tex')
+    with open(latex_path, 'w') as f:
+        f.write("\\begin{table}[h]\n")
+        f.write("\\centering\n")
+        f.write("\\caption{Performance Comparison of Different Models on TissueMNIST}\n")
+        f.write("\\label{tab:performance_comparison}\n")
+        f.write("\\begin{tabular}{lccccccc}\n")
+        f.write("\\toprule\n")
+        f.write("Model & Params (M) & Best Test Acc & Final Test Acc & Train Acc & AUC & Accuracy & Best Epoch \\\\\n")
+        f.write("\\midrule\n")
+        
+        for row in table_data:
+            f.write(f"{row['Model']} & {row['Parameters (M)']} & {row['Best Test Acc (%)']} & "
+                   f"{row['Final Test Acc (%)']} & {row['Final Train Acc (%)']} & "
+                   f"{row['Test AUC']} & {row['Test Accuracy']} & {row['Best Epoch']} \\\\\n")
+        
+        f.write("\\bottomrule\n")
+        f.write("\\end{tabular}\n")
+        f.write("\\end{table}\n")
+    print(f"✓ Saved performance table (LaTeX) to {latex_path}")
+    
+    return csv_path, latex_path
+
+def save_sample_images(train_loader, config, timestamp, num_samples_per_class=3):
+    """Save sample images from each class for paper visualization - TissueMNIST"""
+    paper_dir = os.path.join(config.RESULTS_DIR, config.PAPER_DIR, 'sample_images')
+    os.makedirs(paper_dir, exist_ok=True)
+    
+    # Collect samples from each class
+    class_samples = {i: [] for i in range(TISSUEMNIST_NUM_CLASSES)}
+    
+    for inputs, targets in train_loader:
+        targets = targets.squeeze().long()
+        for img, label in zip(inputs, targets):
+            label_idx = label.item()
+            if len(class_samples[label_idx]) < num_samples_per_class:
+                class_samples[label_idx].append(img)
+                if all(len(samples) >= num_samples_per_class for samples in class_samples.values()):
+                    break
+        if all(len(samples) >= num_samples_per_class for samples in class_samples.values()):
+            break
+    
+    # Save individual sample images
+    for class_idx, samples in class_samples.items():
+        class_name = TISSUEMNIST_LABELS[class_idx]
+        for sample_idx, img_tensor in enumerate(samples):
+            # Denormalize image
+            mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+            std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+            img_denorm = img_tensor * std + mean
+            img_denorm = torch.clamp(img_denorm, 0, 1)
+            
+            # Convert to PIL and save
+            img_np = img_denorm.permute(1, 2, 0).numpy()
+            img_np = (img_np * 255).astype(np.uint8)
+            img_pil = Image.fromarray(img_np)
+            
+            filename = f'class_{class_idx}_{class_name}_sample_{sample_idx+1}.png'
+            filepath = os.path.join(paper_dir, filename)
+            img_pil.save(filepath, dpi=300)
+    
+    # Create a montage of all samples
+    fig, axes = plt.subplots(TISSUEMNIST_NUM_CLASSES, num_samples_per_class, 
+                             figsize=(num_samples_per_class * 2, TISSUEMNIST_NUM_CLASSES * 2))
+    
+    for class_idx, samples in class_samples.items():
+        class_name = TISSUEMNIST_LABELS[class_idx]
+        for sample_idx, img_tensor in enumerate(samples):
+            # Denormalize
+            mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+            std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+            img_denorm = img_tensor * std + mean
+            img_denorm = torch.clamp(img_denorm, 0, 1)
+            
+            img_np = img_denorm.permute(1, 2, 0).numpy()
+            axes[class_idx, sample_idx].imshow(img_np)
+            axes[class_idx, sample_idx].set_title(f'{class_name}' if sample_idx == 0 else '', 
+                                                   fontsize=8)
+            axes[class_idx, sample_idx].axis('off')
+    
+    plt.suptitle('Sample Images from Each Class', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    montage_path = os.path.join(paper_dir, f'sample_images_montage_{timestamp}.png')
+    plt.savefig(montage_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"✓ Saved sample images montage to {montage_path}")
+    
+    return paper_dir
+
+def save_publication_figures(all_histories, config, timestamp):
+    """Save high-quality figures for publication"""
+    paper_dir = os.path.join(config.RESULTS_DIR, config.PAPER_DIR, 'figures')
+    os.makedirs(paper_dir, exist_ok=True)
+    
+    epochs = range(1, config.NUM_EPOCHS + 1)
+    
+    # 1. Training and Test Loss Comparison
+    fig, ax = plt.subplots(figsize=(8, 6))
+    colors = plt.cm.tab10(np.linspace(0, 1, len(all_histories)))
+    
+    for (model_name, history), color in zip(all_histories.items(), colors):
+        ax.plot(epochs, history['train_losses'], '--', color=color, alpha=0.7, 
+               linewidth=2, label=f'{model_name} Train')
+        ax.plot(epochs, history['test_losses'], '-', color=color, linewidth=2.5, 
+               label=f'{model_name} Test')
+    
+    ax.set_xlabel('Epoch', fontsize=12)
+    ax.set_ylabel('Loss', fontsize=12)
+    ax.set_title('Training and Test Loss Comparison', fontsize=14, fontweight='bold')
+    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    loss_path = os.path.join(paper_dir, f'loss_comparison_{timestamp}.png')
+    plt.savefig(loss_path, dpi=300, bbox_inches='tight', format='png')
+    plt.savefig(loss_path.replace('.png', '.pdf'), dpi=300, bbox_inches='tight', format='pdf')
+    plt.close()
+    print(f"✓ Saved loss comparison figure to {loss_path}")
+    
+    # 2. Training and Test Accuracy Comparison
+    fig, ax = plt.subplots(figsize=(8, 6))
+    
+    for (model_name, history), color in zip(all_histories.items(), colors):
+        ax.plot(epochs, history['train_accuracies'], '--', color=color, alpha=0.7, 
+               linewidth=2, label=f'{model_name} Train')
+        ax.plot(epochs, history['test_accuracies'], '-', color=color, linewidth=2.5, 
+               label=f'{model_name} Test')
+    
+    ax.set_xlabel('Epoch', fontsize=12)
+    ax.set_ylabel('Accuracy (%)', fontsize=12)
+    ax.set_title('Training and Test Accuracy Comparison', fontsize=14, fontweight='bold')
+    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    acc_path = os.path.join(paper_dir, f'accuracy_comparison_{timestamp}.png')
+    plt.savefig(acc_path, dpi=300, bbox_inches='tight', format='png')
+    plt.savefig(acc_path.replace('.png', '.pdf'), dpi=300, bbox_inches='tight', format='pdf')
+    plt.close()
+    print(f"✓ Saved accuracy comparison figure to {acc_path}")
+    
+    # 3. Final Test Accuracy Bar Chart
+    fig, ax = plt.subplots(figsize=(10, 6))
+    model_names = list(all_histories.keys())
+    final_test_accs = [all_histories[name]['test_accuracies'][-1] for name in model_names]
+    bars = ax.bar(model_names, final_test_accs, color=colors[:len(model_names)])
+    
+    ax.set_ylabel('Test Accuracy (%)', fontsize=12)
+    ax.set_title('Final Test Accuracy Comparison', fontsize=14, fontweight='bold')
+    ax.set_xticklabels(model_names, rotation=45, ha='right', fontsize=10)
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    for bar, acc in zip(bars, final_test_accs):
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height,
+                f'{acc:.2f}%', ha='center', va='bottom', fontsize=9)
+    
+    plt.tight_layout()
+    bar_path = os.path.join(paper_dir, f'accuracy_bar_chart_{timestamp}.png')
+    plt.savefig(bar_path, dpi=300, bbox_inches='tight', format='png')
+    plt.savefig(bar_path.replace('.png', '.pdf'), dpi=300, bbox_inches='tight', format='pdf')
+    plt.close()
+    print(f"✓ Saved accuracy bar chart to {bar_path}")
+    
+    return paper_dir
+
+def save_paper_deliverables(all_histories, all_metrics, config, train_loader, timestamp):
+    """Save all research paper deliverables - optimized for TissueMNIST"""
+    if not config.SAVE_PAPER_DELIVERABLES:
+        return
+    
+    print("\n" + "="*70)
+    print("SAVING RESEARCH PAPER DELIVERABLES")
+    print("="*70)
+    
+    # Save performance tables
+    save_performance_table(all_histories, all_metrics, config, timestamp)
+    
+    # Save sample images
+    save_sample_images(train_loader, config, timestamp)
+    
+    # Save publication figures
+    save_publication_figures(all_histories, config, timestamp)
+    
+    paper_dir = os.path.join(config.RESULTS_DIR, config.PAPER_DIR)
+    print(f"\n✓ All paper deliverables saved to: {paper_dir}")
+    print(f"  - Performance tables (CSV & LaTeX)")
+    print(f"  - Sample images (individual & montage)")
+    print(f"  - Publication figures (PNG & PDF)")
+
 # Model Saving
-# ============================================================================
 def save_models(models, all_histories, config):
     """Save all trained models"""
     if not config.SAVE_MODELS:
@@ -556,7 +1098,7 @@ def save_models(models, all_histories, config):
         
         torch.save({
             'model_state_dict': model.state_dict(),
-            'model_name': model_name,
+            'model_name': model_name, 
             'training_history': all_histories[model_name],
             'config': {
                 'num_epochs': config.NUM_EPOCHS,
@@ -567,31 +1109,40 @@ def save_models(models, all_histories, config):
         }, save_path)
         print(f"✓ Saved {model_name} to {save_path}")
 
-# ============================================================================
 # Main Training Pipeline
-# ============================================================================
 def main():
-    """Main training and evaluation pipeline"""
+    """Main training and evaluation pipeline - optimized for TissueMNIST"""
+    # Create config first to load environment variables
     config = Config()
     
+    # Set seed for reproducibility (use config value, or skip if -1)
+    if config.RANDOM_SEED >= 0:
+        set_seed(config.RANDOM_SEED)
+    
     print("="*70)
-    print("COMPARATIVE STUDY: CNN vs Transformer Models")
+    print("TISSUEMNIST COMPARATIVE STUDY: CNN vs Transformer Models")
     print("="*70)
+    print(f"Dataset: TissueMNIST ({TISSUEMNIST_NUM_CLASSES} classes)")
     print(f"Device: {config.DEVICE}")
     print(f"Models to train: {', '.join(config.MODELS_TO_TRAIN)}")
+    if config.RANDOM_SEED >= 0:
+        print(f"Random seed: {config.RANDOM_SEED} (for reproducibility)")
+    else:
+        print("Random seed: Disabled")
     print("="*70)
     
-    # Load dataset
-    print("\nLoading dataset...")
-    train_loader, test_loader, info = load_dataset(config)
-    num_classes = len(info['label'])
-    print(f"✓ Dataset loaded: {config.DATA_FLAG}")
-    print(f"  Number of classes: {num_classes}")
-    print(f"  Task type: {info['task']}")
+    # Load TissueMNIST dataset
+    print("\nLoading TissueMNIST dataset...")
+    train_loader, val_loader, test_loader, info = load_tissuemnist(config)
+    print(f"✓ TissueMNIST dataset loaded")
+    print(f"  Number of classes: {TISSUEMNIST_NUM_CLASSES}")
+    print(f"  Task type: {TISSUEMNIST_TASK}")
+    print(f"  Classes: {', '.join(TISSUEMNIST_LABELS)}")
+    print(f"  Train/Val/Test split: {len(train_loader.dataset)}/{len(val_loader.dataset)}/{len(test_loader.dataset)} samples")
     
     # Create models
     print("\nInitializing models...")
-    models = create_models(config, num_classes)
+    models = create_models(config)
     print(f"✓ Initialized {len(models)} models")
     
     # Loss function
@@ -605,8 +1156,8 @@ def main():
     
     for model_name, model in models.items():
         history = train_model(
-            model, model_name, train_loader, test_loader,
-            config, info['task'], criterion
+            model, model_name, train_loader, val_loader, test_loader,
+            config, criterion
         )
         all_histories[model_name] = history
     
@@ -615,18 +1166,32 @@ def main():
     print("FINAL EVALUATION WITH MEDMNIST EVALUATOR")
     print("="*70)
     all_metrics = {}
+    all_confusion_matrices = {}
+    all_classification_reports = {}
+    
     for model_name, model in models.items():
+        # MedMNIST evaluator metrics
         metrics = evaluate_with_medmnist(
             model, model_name, test_loader, 'test',
-            config.DEVICE, info['task'], config.DATA_FLAG
+            config.DEVICE
         )
         all_metrics[model_name] = metrics
+        
+        # Confusion matrix and classification report
+        cm, report = evaluate_with_metrics(
+            model, test_loader, config.DEVICE, TISSUEMNIST_NUM_CLASSES
+        )
+        all_confusion_matrices[model_name] = cm
+        all_classification_reports[model_name] = report
+        
+        print(f"\n{model_name} - Classification Report:")
+        print(report)
     
     # Save results
     print("\n" + "="*70)
     print("SAVING RESULTS")
     print("="*70)
-    json_path, report_path = save_results(all_histories, all_metrics, config, info)
+    json_path, report_path = save_results(all_histories, all_metrics, config)
     
     # Generate visualizations
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -635,6 +1200,10 @@ def main():
     
     plot_training_curves(all_histories, config, curves_path)
     plot_accuracy_curves(all_histories, config, accuracy_path)
+    
+    # Save research paper deliverables
+    if config.SAVE_PAPER_DELIVERABLES:
+        save_paper_deliverables(all_histories, all_metrics, config, train_loader, timestamp)
     
     # Save models
     if config.SAVE_MODELS:
@@ -667,4 +1236,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

@@ -1,4 +1,6 @@
+# ============================================================================
 # Python
+# ============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -23,78 +25,110 @@ share/python-wheels/
 *.egg
 MANIFEST
 
+# ============================================================================
 # Virtual Environments
+# ============================================================================
 venv/
-env/
-ENV/
-env.bak/
-venv.bak/
-.venv/
-.ENV/
 
-# PyTorch / Model Files
+# ============================================================================
+# Model Files
+# ============================================================================
 *.pt
 *.pth
 *.pkl
 *.ckpt
 *.h5
 *.hdf5
+*.pb
 *.onnx
 *.tflite
-
-# Model Directories
+*.safetensors
 saved_models/
 saved_models_comparative/
-models/
 checkpoints/
-weights/
+models/
 
+# ============================================================================
 # Dataset Directories
+# ============================================================================
 mnist_dataset/
 dataset/
 datasets/
 data/
+*.npz
+*.npy
+*.h5
+*.hdf5
 *.csv
 *.tsv
 *.parquet
 
-# Results and Output
+# ============================================================================
+# Results and Outputs
+# ============================================================================
 results/
 results_comparative/
 outputs/
 logs/
 *.log
-*.txt
-!requirements.txt
-!README.txt
+runs/
+tensorboard_logs/
+wandb/
 
-# Jupyter Notebook
-.ipynb_checkpoints
-*.ipynb_checkpoints/
+# ============================================================================
+# Research Paper Deliverables
+# ============================================================================
+paper_deliverables/
+figures/
+tables/
+sample_images/
 
-# IDE
+# ============================================================================
+# Jupyter Notebooks
+# ============================================================================
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ============================================================================
+# IDE and Editor Files
+# ============================================================================
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
+Thumbs.db
+*.sublime-project
+*.sublime-workspace
 
-# Testing
+# ============================================================================
+# Environment Variables
+# ============================================================================
+.env
+.env.local
+.env.*.local
+*.env
+
+# ============================================================================
+# Temporary Files
+# ============================================================================
+*.tmp
+*.temp
+*.bak
+*.cache
+.cache/
 .pytest_cache/
 .coverage
 htmlcov/
 .tox/
-.hypothesis/
-*.cover
-*.py,cover
+.mypy_cache/
+.dmypy.json
+dmypy.json
 
-# Environment Variables
-.env
-.env.local
-.env.*.local
-
-# OS
+# ============================================================================
+# OS Files
+# ============================================================================
 .DS_Store
 .DS_Store?
 ._*
@@ -104,36 +138,16 @@ ehthumbs.db
 Thumbs.db
 Desktop.ini
 
-# Temporary Files
-*.tmp
-*.temp
-*.bak
-*.swp
-*.swo
+# ============================================================================
+# HuggingFace Cache
+# ============================================================================
+.cache/
+.huggingface/
+transformers_cache/
 
-# Plot/Image Outputs (optional - uncomment if you don't want to track generated plots)
-# *.png
-# *.jpg
-# *.jpeg
-# *.pdf
-# *.svg
-
-# Large files
-*.zip
-*.tar.gz
-*.rar
-
-# MacOS
-.AppleDouble
-.LSOverride
-
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-
-# Project Specific
-wandb/
-mlruns/
-.neptune/
-
+# ============================================================================
+# Specific Project Files (keep .keep files)
+# ============================================================================
+# Keep directory structure but ignore data files
+mnist_dataset/*
+!mnist_dataset/.keep

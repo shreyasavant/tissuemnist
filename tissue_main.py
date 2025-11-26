@@ -1,11 +1,19 @@
 import torch
 import torch.nn as nn
-from torchvision.models import resnet50, densenet121, efficientnet_b0, ResNet50_Weights, DenseNet121_Weights, EfficientNet_B0_Weights
+from torchvision.models import resnet18, resnet50, densenet121, efficientnet_b0, ResNet18_Weights, ResNet50_Weights, DenseNet121_Weights, EfficientNet_B0_Weights
 from transformers import ViTModel, SwinModel, ViTConfig, SwinConfig
 
-# ============================================================================
 # CNN Models
-# ============================================================================
+class ResNet18Classifier(nn.Module):
+    def __init__(self, num_classes, pretrained=True):
+        super().__init__()
+        weights = ResNet18_Weights.IMAGENET1K_V1 if pretrained else None
+        self.resnet = resnet18(weights=weights)
+        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, num_classes)
+    
+    def forward(self, x):
+        return self.resnet(x)
+
 class ResNet50Classifier(nn.Module):
     def __init__(self, num_classes, pretrained=True):
         super().__init__()
@@ -38,9 +46,7 @@ class EfficientNetClassifier(nn.Module):
     def forward(self, x):
         return self.efficientnet(x)
 
-# ============================================================================
 # Transformer Models
-# ============================================================================
 class ViTClassifier(nn.Module):
     def __init__(self, num_classes, model_name="google/vit-base-patch16-224", pretrained=True):
         super().__init__()
@@ -84,22 +90,24 @@ class SwinTransformerClassifier(nn.Module):
         pooled_output = outputs.last_hidden_state.mean(dim=1)
         return self.classifier(pooled_output)
 
-# ============================================================================
-# Initialize Models
-# ============================================================================
-USE_PRETRAINED = True
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# Model Initialization (for direct execution only)
+# This section only runs if tissue_main.py is executed directly
+# When imported, models are created by train_comparative_study.py
+if __name__ == '__main__':
+    USE_PRETRAINED = True
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-models_dict = {
-    'ResNet50': ResNet50Classifier(num_classes=8, pretrained=USE_PRETRAINED).to(device),
-    'DenseNet121': DenseNet121Classifier(num_classes=8, pretrained=USE_PRETRAINED).to(device),
-    'EfficientNet-B0': EfficientNetClassifier(num_classes=8, pretrained=USE_PRETRAINED).to(device),
-    'ViT-B/16': ViTClassifier(num_classes=8, model_name="google/vit-base-patch16-224", pretrained=USE_PRETRAINED).to(device),
-    'Swin-Tiny': SwinTransformerClassifier(num_classes=8, model_name="microsoft/swin-tiny-patch4-window7-224", pretrained=USE_PRETRAINED).to(device),
-    'Swin-Base': SwinTransformerClassifier(num_classes=8, model_name="microsoft/swin-base-patch4-window7-224", pretrained=USE_PRETRAINED).to(device),
-}
+    models_dict = {
+        'ResNet18': ResNet18Classifier(num_classes=8, pretrained=USE_PRETRAINED).to(device),
+        'ResNet50': ResNet50Classifier(num_classes=8, pretrained=USE_PRETRAINED).to(device),
+        'DenseNet121': DenseNet121Classifier(num_classes=8, pretrained=USE_PRETRAINED).to(device),
+        'EfficientNet-B0': EfficientNetClassifier(num_classes=8, pretrained=USE_PRETRAINED).to(device),
+        'ViT-B/16': ViTClassifier(num_classes=8, model_name="google/vit-base-patch16-224", pretrained=USE_PRETRAINED).to(device),
+        'Swin-Tiny': SwinTransformerClassifier(num_classes=8, model_name="microsoft/swin-tiny-patch4-window7-224", pretrained=USE_PRETRAINED).to(device),
+        'Swin-Base': SwinTransformerClassifier(num_classes=8, model_name="microsoft/swin-base-patch4-window7-224", pretrained=USE_PRETRAINED).to(device),
+    }
 
-# Print model info
-for name, model in models_dict.items():
-    num_params = sum(p.numel() for p in model.parameters())
-    print(f"{name}: {num_params/1e6:.1f}M parameters")
+    # Print model info
+    for name, model in models_dict.items():
+        num_params = sum(p.numel() for p in model.parameters())
+        print(f"{name}: {num_params/1e6:.1f}M parameters")

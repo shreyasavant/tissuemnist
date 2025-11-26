@@ -10,6 +10,8 @@ transformers>=4.57.1
 # Data Processing
 numpy>=2.0.0
 pillow>=12.0.0
+medmnist>=2.2.0
+tqdm>=4.66.0
 
 # Visualization
 matplotlib>=3.10.0
@@ -24,3 +26,9 @@ python-dotenv>=1.2.0
 # Optional: Jupyter Notebook Support (for visualize_results.ipynb)
 # jupyter>=1.0.0
 # notebook>=7.0.0
+
+# Model Analysis
+thop>=0.1.1
+
+# TensorBoard
+tensorboard>=2.15.0
