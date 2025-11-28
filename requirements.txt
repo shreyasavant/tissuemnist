@@ -1,27 +1,29 @@
 # Core ML Frameworks
-# TensorFlow for CNN implementation
-tensorflow>=2.20.0
+# TensorFlow for CNN implementation (optional, not used in this project)
+# tensorflow>=2.20.0
 
 # PyTorch for ViT implementation
-torch>=2.9.0
-torchvision>=0.24.0
-transformers>=4.57.1
+# Compatible with HPC environments (PyTorch 2.8.0 is latest on many HPC systems)
+# Note: If installing on HPC, you may need to install PyTorch separately via conda or system packages
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.30.0
 
 # Data Processing
-numpy>=2.0.0
-pillow>=12.0.0
+numpy>=1.21.0
+pillow>=9.0.0
 medmnist>=2.2.0
-tqdm>=4.66.0
+tqdm>=4.60.0
 
 # Visualization
-matplotlib>=3.10.0
-seaborn>=0.13.0
+matplotlib>=3.5.0
+seaborn>=0.12.0
 
 # Evaluation Metrics
-scikit-learn>=1.7.0
+scikit-learn>=1.0.0
 
 # Configuration (for environment variables)
-python-dotenv>=1.2.0
+python-dotenv>=1.0.0
 
 # Optional: Jupyter Notebook Support (for visualize_results.ipynb)
 # jupyter>=1.0.0
@@ -31,4 +33,4 @@ python-dotenv>=1.2.0
 thop>=0.1.1
 
 # TensorBoard
-tensorboard>=2.15.0
+tensorboard>=2.10.0

@@ -18,7 +18,6 @@ import json
 import csv
 import random
 from datetime import datetime
-from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -29,7 +28,6 @@ import torchvision.transforms as transforms
 from torch.cuda.amp import autocast, GradScaler
 import numpy as np
 import matplotlib.pyplot as plt
-from tqdm import tqdm
 from PIL import Image
 from sklearn.metrics import confusion_matrix, classification_report
 from torch.utils.tensorboard import SummaryWriter
@@ -51,9 +49,6 @@ from tissue_main import (
     ViTClassifier,
     SwinTransformerClassifier
 )
-
-# Suppress warnings
-warnings.filterwarnings('ignore', category=UserWarning, module='tqdm')
 
 # Reproducibility
 def set_seed(seed=42):
@@ -263,14 +258,7 @@ def load_tissuemnist(config):
         persistent_workers=num_workers > 0
     )
     
-    # Create info dict for compatibility
-    info = {
-        'label': TISSUEMNIST_LABELS,
-        'task': TISSUEMNIST_TASK,
-        'n_channels': 1  # TissueMNIST is grayscale
-    }
-    
-    return train_loader, val_loader, test_loader, info
+    return train_loader, val_loader, test_loader
 
 # Model Analysis
 def analyze_model(model, device, input_shape=(1, 3, 224, 224), skip_flops=False):
@@ -776,6 +764,42 @@ def plot_accuracy_curves(all_histories, config, save_path):
     plt.close()
     print(f"✓ Saved accuracy curves to {save_path}")
 
+# Single Model Results Saving
+def save_single_model_results(model_name, history, metrics, cm, report, config, timestamp):
+    """Save results for a single model immediately after training"""
+    os.makedirs(config.RESULTS_DIR, exist_ok=True)
+    
+    # Save individual model JSON
+    model_results = {
+        'timestamp': timestamp,
+        'model_name': model_name,
+        'dataset': 'TissueMNIST',
+        'config': {
+            'num_epochs': config.NUM_EPOCHS,
+            'batch_size': config.BATCH_SIZE,
+            'learning_rate': config.LEARNING_RATE,
+            'use_pretrained': config.USE_PRETRAINED,
+            'num_classes': TISSUEMNIST_NUM_CLASSES,
+            'task': TISSUEMNIST_TASK,
+            'labels': TISSUEMNIST_LABELS
+        },
+        'training_history': history,
+        'test_metrics': {
+            'auc': float(metrics[0]),
+            'accuracy': float(metrics[1])
+        },
+        'confusion_matrix': cm.tolist(),
+        'classification_report': report
+    }
+    
+    model_name_clean = model_name.replace(' ', '_').replace('/', '_').lower()
+    json_path = os.path.join(config.RESULTS_DIR, f'{model_name_clean}_results_{timestamp}.json')
+    with open(json_path, 'w') as f:
+        json.dump(model_results, f, indent=2)
+    
+    if config.VERBOSE:
+        print(f"  ✓ Saved individual results to {json_path}")
+
 # Results Saving
 def save_results(all_histories, all_metrics, config):
     """Save all results to JSON and generate report - optimized for TissueMNIST"""
@@ -1086,8 +1110,29 @@ def save_models(models, all_histories, config):
     if not config.SAVE_MODELS:
         return
     
-    os.makedirs(config.MODEL_SAVE_DIR, exist_ok=True)
+    print(f"Attempting to save models to: {os.path.abspath(config.MODEL_SAVE_DIR)}")
+    
+    # Check if directory can be created/accessed
+    try:
+        os.makedirs(config.MODEL_SAVE_DIR, exist_ok=True)
+        # Test write permissions
+        test_file = os.path.join(config.MODEL_SAVE_DIR, '.write_test')
+        try:
+            with open(test_file, 'w') as f:
+                f.write('test')
+            os.remove(test_file)
+            print(f"✓ Directory is writable: {os.path.abspath(config.MODEL_SAVE_DIR)}")
+        except (IOError, OSError) as e:
+            print(f"✗ ERROR: Cannot write to directory {config.MODEL_SAVE_DIR}: {e}")
+            print(f"  Please check permissions or disk quota")
+            return
+    except (OSError, PermissionError) as e:
+        print(f"✗ ERROR: Cannot create directory {config.MODEL_SAVE_DIR}: {e}")
+        return
+    
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    saved_count = 0
+    failed_count = 0
     
     for model_name, model in models.items():
         model_name_clean = model_name.replace(' ', '_').replace('/', '_').lower()
@@ -1096,19 +1141,103 @@ def save_models(models, all_histories, config):
             f'{model_name_clean}_{timestamp}.pt'
         )
         
-        torch.save({
-            'model_state_dict': model.state_dict(),
-            'model_name': model_name, 
-            'training_history': all_histories[model_name],
-            'config': {
-                'num_epochs': config.NUM_EPOCHS,
-                'batch_size': config.BATCH_SIZE,
-                'learning_rate': config.LEARNING_RATE,
-                'use_pretrained': config.USE_PRETRAINED
+        try:
+            # Check available disk space (if possible)
+            try:
+                import shutil
+                stat = shutil.disk_usage(os.path.dirname(os.path.abspath(save_path)))
+                free_gb = stat.free / (1024**3)
+                if free_gb < 0.1:  # Less than 100MB free
+                    print(f"⚠ WARNING: Low disk space ({free_gb:.2f} GB free) for {model_name}")
+            except:
+                pass  # Skip disk space check if not available
+            
+            # Get state_dict and move to CPU (important for CUDA models)
+            # This ensures models can be loaded on any device later
+            state_dict = model.state_dict()
+            # Move all tensors in state_dict to CPU
+            cpu_state_dict = {k: v.cpu() if isinstance(v, torch.Tensor) else v 
+                            for k, v in state_dict.items()}
+            
+            # Prepare checkpoint data
+            checkpoint = {
+                'model_state_dict': cpu_state_dict,  # Use CPU state_dict
+                'model_name': model_name, 
+                'training_history': all_histories.get(model_name, {}),
+                'config': {
+                    'num_epochs': config.NUM_EPOCHS,
+                    'batch_size': config.BATCH_SIZE,
+                    'learning_rate': config.LEARNING_RATE,
+                    'use_pretrained': config.USE_PRETRAINED
+                }
             }
-        }, save_path)
-        print(f"✓ Saved {model_name} to {save_path}")
-
+            
+            # Save the model (using CPU tensors)
+            torch.save(checkpoint, save_path)
+            
+            # Verify the file was created and has content
+            if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
+                file_size_mb = os.path.getsize(save_path) / (1024**2)
+                print(f"✓ Saved {model_name} to {save_path} ({file_size_mb:.2f} MB)")
+                saved_count += 1
+            else:
+                print(f"✗ ERROR: File was not created properly for {model_name}")
+                failed_count += 1
+                
+        except OSError as e:
+            if e.errno == 122:  # Disk quota exceeded
+                print(f"✗ ERROR: Disk quota exceeded while saving {model_name}")
+                print(f"  Path: {save_path}")
+                print(f"  Error: {e}")
+            else:
+                print(f"✗ ERROR: OS error while saving {model_name}: {e}")
+            failed_count += 1
+        except RuntimeError as e:
+            # Catch CUDA-related errors
+            if 'cuda' in str(e).lower() or 'CUDA' in str(e):
+                print(f"✗ ERROR: CUDA error while saving {model_name}: {e}")
+                print(f"  Attempting to save with model moved to CPU...")
+                try:
+                    # Try saving with model temporarily on CPU
+                    model_cpu = model.cpu()
+                    cpu_state_dict = model_cpu.state_dict()
+                    model_cpu = model_cpu.to(config.DEVICE)  # Move back to original device
+                    
+                    checkpoint = {
+                        'model_state_dict': cpu_state_dict,
+                        'model_name': model_name, 
+                        'training_history': all_histories.get(model_name, {}),
+                        'config': {
+                            'num_epochs': config.NUM_EPOCHS,
+                            'batch_size': config.BATCH_SIZE,
+                            'learning_rate': config.LEARNING_RATE,
+                            'use_pretrained': config.USE_PRETRAINED
+                        }
+                    }
+                    torch.save(checkpoint, save_path)
+                    if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
+                        file_size_mb = os.path.getsize(save_path) / (1024**2)
+                        print(f"✓ Saved {model_name} to {save_path} ({file_size_mb:.2f} MB) [CPU fallback]")
+                        saved_count += 1
+                    else:
+                        failed_count += 1
+                except Exception as e2:
+                    print(f"✗ ERROR: Failed to save {model_name} even with CPU fallback: {e2}")
+                    failed_count += 1
+            else:
+                print(f"✗ ERROR: Runtime error while saving {model_name}: {e}")
+                failed_count += 1
+        except Exception as e:
+            print(f"✗ ERROR: Unexpected error while saving {model_name}: {e}")
+            print(f"  Error type: {type(e).__name__}")
+            failed_count += 1
+    
+    # Summary
+    print(f"\nModel saving summary: {saved_count} saved, {failed_count} failed")
+    if saved_count > 0:
+        print(f"✓ Models saved to: {os.path.abspath(config.MODEL_SAVE_DIR)}")
+    if failed_count > 0:
+        print(f"⚠ WARNING: {failed_count} model(s) failed to save. Check disk quota and permissions.")
 # Main Training Pipeline
 def main():
     """Main training and evaluation pipeline - optimized for TissueMNIST"""
@@ -1125,6 +1254,7 @@ def main():
     print(f"Dataset: TissueMNIST ({TISSUEMNIST_NUM_CLASSES} classes)")
     print(f"Device: {config.DEVICE}")
     print(f"Models to train: {', '.join(config.MODELS_TO_TRAIN)}")
+    print(f"Save models: {config.SAVE_MODELS} (directory: {config.MODEL_SAVE_DIR})")
     if config.RANDOM_SEED >= 0:
         print(f"Random seed: {config.RANDOM_SEED} (for reproducibility)")
     else:
@@ -1133,7 +1263,7 @@ def main():
     
     # Load TissueMNIST dataset
     print("\nLoading TissueMNIST dataset...")
-    train_loader, val_loader, test_loader, info = load_tissuemnist(config)
+    train_loader, val_loader, test_loader = load_tissuemnist(config)
     print(f"✓ TissueMNIST dataset loaded")
     print(f"  Number of classes: {TISSUEMNIST_NUM_CLASSES}")
     print(f"  Task type: {TISSUEMNIST_TASK}")
@@ -1148,91 +1278,186 @@ def main():
     # Loss function
     criterion = nn.CrossEntropyLoss()
     
-    # Train all models
+    # Initialize accumulators for final summary
     all_histories = {}
-    print("\n" + "="*70)
-    print("STARTING TRAINING")
-    print("="*70)
-    
-    for model_name, model in models.items():
-        history = train_model(
-            model, model_name, train_loader, val_loader, test_loader,
-            config, criterion
-        )
-        all_histories[model_name] = history
-    
-    # Evaluate with MedMNIST evaluator
-    print("\n" + "="*70)
-    print("FINAL EVALUATION WITH MEDMNIST EVALUATOR")
-    print("="*70)
     all_metrics = {}
-    all_confusion_matrices = {}
-    all_classification_reports = {}
     
-    for model_name, model in models.items():
-        # MedMNIST evaluator metrics
-        metrics = evaluate_with_medmnist(
-            model, model_name, test_loader, 'test',
-            config.DEVICE
-        )
-        all_metrics[model_name] = metrics
-        
-        # Confusion matrix and classification report
-        cm, report = evaluate_with_metrics(
-            model, test_loader, config.DEVICE, TISSUEMNIST_NUM_CLASSES
-        )
-        all_confusion_matrices[model_name] = cm
-        all_classification_reports[model_name] = report
-        
-        print(f"\n{model_name} - Classification Report:")
-        print(report)
+    # Shared timestamp for this run
+    run_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     
-    # Save results
+    # Process each model completely before moving to next
     print("\n" + "="*70)
-    print("SAVING RESULTS")
+    print("PROCESSING MODELS (Train → Evaluate → Save → Cleanup)")
     print("="*70)
-    json_path, report_path = save_results(all_histories, all_metrics, config)
     
-    # Generate visualizations
+    for model_idx, (model_name, model) in enumerate(models.items(), 1):
+        print("\n" + "="*70)
+        print(f"MODEL {model_idx}/{len(models)}: {model_name}")
+        print("="*70)
+        
+        try:
+            # 1. Train model
+            print(f"\n[1/5] Training {model_name}...")
+            history = train_model(
+                model, model_name, train_loader, val_loader, test_loader,
+                config, criterion
+            )
+            all_histories[model_name] = history
+            print(f"✓ Training complete for {model_name}")
+            
+            # 2. Evaluate with MedMNIST evaluator
+            print(f"\n[2/5] Evaluating {model_name} with MedMNIST evaluator...")
+            metrics = evaluate_with_medmnist(
+                model, model_name, test_loader, 'test',
+                config.DEVICE
+            )
+            all_metrics[model_name] = metrics
+            
+            # 3. Get confusion matrix and classification report
+            print(f"\n[3/5] Computing detailed metrics for {model_name}...")
+            cm, report = evaluate_with_metrics(
+                model, test_loader, config.DEVICE, TISSUEMNIST_NUM_CLASSES
+            )
+            
+            print(f"\n{model_name} - Classification Report:")
+            print(report)
+            
+            # 4. Save model checkpoint immediately
+            print(f"\n[4/5] Saving {model_name} checkpoint...")
+            if config.SAVE_MODELS:
+                temp_models = {model_name: model}
+                temp_histories = {model_name: history}
+                save_models(temp_models, temp_histories, config)
+                print(f"✓ Checkpoint saved for {model_name}")
+            else:
+                print(f"⚠ Model saving disabled (SAVE_MODELS=False)")
+            
+            # 5. Save per-model deliverables
+            print(f"\n[5/5] Saving {model_name} deliverables...")
+            save_single_model_results(model_name, history, metrics, cm, report, config, run_timestamp)
+            print(f"✓ Deliverables saved for {model_name}")
+            
+            # Cleanup: Move model to CPU to free GPU memory
+            print(f"\nCleaning up memory for {model_name}...", end=' ', flush=True)
+            if next(model.parameters()).is_cuda:
+                model = model.cpu()
+                models[model_name] = model  # Update in dict
+                if torch.cuda.is_available() and config.DEVICE.type == 'cuda':
+                    torch.cuda.empty_cache()
+                    if config.VERBOSE:
+                        allocated = torch.cuda.memory_allocated() / (1024**3)
+                        reserved = torch.cuda.memory_reserved() / (1024**3)
+                        print(f"✓ (GPU memory: {allocated:.2f} GB allocated, {reserved:.2f} GB reserved)")
+                    else:
+                        print("✓")
+                else:
+                    print("✓")
+            else:
+                print("✓ (already on CPU)")
+            
+            print(f"\n{'='*70}")
+            print(f"✓ {model_name} processing complete!")
+            print(f"{'='*70}")
+            
+        except KeyboardInterrupt:
+            print(f"\n\n⚠ Training interrupted by user (Ctrl+C) during {model_name}")
+            print(f"⚠ {model_name} may not have been saved. Check if training completed.")
+            raise  # Re-raise to exit gracefully
+        except Exception as e:
+            print(f"\n✗ ERROR processing {model_name}: {e}")
+            print(f"  Error type: {type(e).__name__}")
+            import traceback
+            traceback.print_exc()
+            print(f"\n⚠ Continuing with next model...")
+            # Mark this model as failed but continue
+            all_histories[model_name] = {'error': str(e), 'failed': True}
+            continue
+    
+    # Final summary and combined deliverables
+    print("\n" + "="*70)
+    print("GENERATING FINAL SUMMARY AND COMBINED DELIVERABLES")
+    print("="*70)
+    
+    # Filter out failed models for final deliverables
+    successful_models = {k: v for k, v in all_histories.items() if not v.get('failed', False)}
+    
+    if len(successful_models) == 0:
+        print("\n⚠ WARNING: No models were successfully trained!")
+        print("⚠ Check error messages above for details.")
+        return
+    
+    # Save combined results
+    print("\n[1/4] Saving combined results...")
+    successful_metrics = {k: v for k, v in all_metrics.items() if k in successful_models}
+    json_path, report_path = save_results(successful_models, successful_metrics, config)
+    
+    # Generate combined visualizations
+    print("\n[2/4] Generating combined visualizations...")
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     curves_path = os.path.join(config.RESULTS_DIR, f'training_curves_{timestamp}.png')
     accuracy_path = os.path.join(config.RESULTS_DIR, f'accuracy_curves_{timestamp}.png')
     
-    plot_training_curves(all_histories, config, curves_path)
-    plot_accuracy_curves(all_histories, config, accuracy_path)
+    plot_training_curves(successful_models, config, curves_path)
+    plot_accuracy_curves(successful_models, config, accuracy_path)
+    print("✓ Visualizations generated")
     
-    # Save research paper deliverables
+    # Save combined paper deliverables
+    print("\n[3/4] Saving combined paper deliverables...")
     if config.SAVE_PAPER_DELIVERABLES:
-        save_paper_deliverables(all_histories, all_metrics, config, train_loader, timestamp)
-    
-    # Save models
-    if config.SAVE_MODELS:
-        print("\n" + "="*70)
-        print("SAVING MODELS")
-        print("="*70)
-        save_models(models, all_histories, config)
+        save_paper_deliverables(successful_models, successful_metrics, config, train_loader, timestamp)
+        print("✓ Paper deliverables saved")
+    else:
+        print("⚠ Paper deliverables disabled (SAVE_PAPER_DELIVERABLES=False)")
     
     # Final summary
+    print("\n[4/4] Generating final summary...")
     print("\n" + "="*70)
     print("FINAL SUMMARY")
     print("="*70)
-    sorted_models = sorted(
-        all_histories.items(),
-        key=lambda x: x[1]['best_test_accuracy'],
-        reverse=True
-    )
     
-    print("\nRanking by Best Test Accuracy:")
-    for rank, (model_name, history) in enumerate(sorted_models, 1):
-        print(f"{rank}. {model_name}: {history['best_test_accuracy']:.2f}% "
-              f"(Params: {history['num_parameters']/1e6:.2f}M)")
+    # Filter successful models for ranking
+    successful_histories = {k: v for k, v in all_histories.items() if not v.get('failed', False)}
+    
+    if len(successful_histories) > 0:
+        sorted_models = sorted(
+            successful_histories.items(),
+            key=lambda x: x[1].get('best_test_accuracy', 0),
+            reverse=True
+        )
+        
+        print("\nRanking by Best Validation Accuracy:")
+        for rank, (model_name, history) in enumerate(sorted_models, 1):
+            best_acc = history.get('best_test_accuracy', 0)
+            num_params = history.get('num_parameters', 0) / 1e6
+            print(f"{rank}. {model_name}: {best_acc:.2f}% "
+                  f"(Params: {num_params:.2f}M)")
+    
+    # Report failed models if any
+    failed_models = [k for k, v in all_histories.items() if v.get('failed', False)]
+    if failed_models:
+        print(f"\n⚠ Failed Models ({len(failed_models)}):")
+        for model_name in failed_models:
+            print(f"  - {model_name}")
     
     print("\n" + "="*70)
     print("COMPARATIVE STUDY COMPLETE!")
     print("="*70)
+    print(f"Successfully processed: {len(successful_histories)}/{len(models)} models")
     print(f"Results saved to: {config.RESULTS_DIR}")
     if config.SAVE_MODELS:
         print(f"Models saved to: {config.MODEL_SAVE_DIR}")
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\n⚠ Training interrupted by user (Ctrl+C)")
+        print("⚠ Models may not have been saved. Check if training completed.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n\n✗ FATAL ERROR: {e}")
+        print(f"  Error type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
+        print("\n⚠ Models may not have been saved due to this error.")
+        sys.exit(1)
