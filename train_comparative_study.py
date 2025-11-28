@@ -257,7 +257,7 @@ def load_tissuemnist(config):
         persistent_workers=num_workers > 0
     )
     
-    return train_loader, val_loader, test_loader
+    return train_loader, val_loader, test_loader, dataset_path
 
 # Model Analysis
 def analyze_model(model, device, input_shape=(1, 3, 224, 224), skip_flops=False):
@@ -271,7 +271,7 @@ def analyze_model(model, device, input_shape=(1, 3, 224, 224), skip_flops=False)
     """
     # Count parameters (always fast)
     params = sum(p.numel() for p in model.parameters())
-    
+
     # Skip FLOPs if requested (useful for transformer models which are slow)
     if skip_flops:
         return None, params / 1e6
@@ -639,8 +639,17 @@ def evaluate_with_metrics(model, data_loader, device, num_classes):
     return cm, report
 
 # Evaluation with MedMNIST Evaluator
-def evaluate_with_medmnist(model, model_name, data_loader, split, device):
-    """Evaluate using MedMNIST evaluator - optimized for TissueMNIST"""
+def evaluate_with_medmnist(model, model_name, data_loader, split, device, dataset_path=None):
+    """Evaluate using MedMNIST evaluator - optimized for TissueMNIST
+    
+    Args:
+        model: Model to evaluate
+        model_name: Name of the model
+        data_loader: DataLoader for evaluation
+        split: Dataset split ('train', 'val', 'test')
+        device: Device to run evaluation on
+        dataset_path: Path to the dataset directory (same as used for loading)
+    """
     model.eval()
     y_true = torch.tensor([])
     y_score = torch.tensor([])
@@ -661,7 +670,43 @@ def evaluate_with_medmnist(model, model_name, data_loader, split, device):
     y_score = y_score.detach().numpy()
     y_true = y_true.detach().numpy()
     
-    evaluator = Evaluator('tissuemnist', split, size=224)
+    # Use the same dataset path as used for loading the dataset
+    # This ensures the Evaluator looks in the correct location
+    if dataset_path:
+        # Try to pass root parameter first (most direct approach)
+        try:
+            evaluator = Evaluator('tissuemnist', split, size=224, root=dataset_path)
+        except (TypeError, AttributeError):
+            # If Evaluator doesn't accept root parameter, try setting root attribute after creation
+            try:
+                evaluator = Evaluator('tissuemnist', split, size=224)
+                # Try to set root attribute if it exists
+                if hasattr(evaluator, 'root'):
+                    evaluator.root = dataset_path
+                elif hasattr(evaluator, '_root'):
+                    evaluator._root = dataset_path
+            except FileNotFoundError as e:
+                # Evaluator is looking in wrong location, try to find dataset file
+                dataset_file = os.path.join(dataset_path, 'tissuemnist_224.npz')
+                if os.path.exists(dataset_file):
+                    # File exists but Evaluator can't find it - provide helpful error
+                    error_msg = (
+                        f"Evaluator cannot find dataset file. "
+                        f"Dataset exists at: {dataset_file}, "
+                        f"but Evaluator is looking elsewhere. "
+                        f"Original error: {str(e)}"
+                    )
+                    raise FileNotFoundError(error_msg) from e
+                else:
+                    # Dataset file not found
+                    raise FileNotFoundError(
+                        f"Dataset file not found at {dataset_path}. "
+                        f"Expected file: tissuemnist_224.npz. "
+                        f"Original error: {str(e)}"
+                    )
+    else:
+        evaluator = Evaluator('tissuemnist', split, size=224)
+    
     try:
         metrics = evaluator.evaluate(y_score, y_true)
     except TypeError:
@@ -1262,8 +1307,9 @@ def main():
     
     # Load TissueMNIST dataset
     print("\nLoading TissueMNIST dataset...")
-    train_loader, val_loader, test_loader = load_tissuemnist(config)
+    train_loader, val_loader, test_loader, dataset_path = load_tissuemnist(config)
     print(f"✓ TissueMNIST dataset loaded")
+    print(f"  Dataset path: {dataset_path}")
     print(f"  Number of classes: {TISSUEMNIST_NUM_CLASSES}")
     print(f"  Task type: {TISSUEMNIST_TASK}")
     print(f"  Classes: {', '.join(TISSUEMNIST_LABELS)}")
@@ -1308,7 +1354,7 @@ def main():
             print(f"\n[2/5] Evaluating {model_name} with MedMNIST evaluator...")
             metrics = evaluate_with_medmnist(
                 model, model_name, test_loader, 'test',
-                config.DEVICE
+                config.DEVICE, dataset_path
             )
             all_metrics[model_name] = metrics
             
