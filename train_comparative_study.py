@@ -79,7 +79,6 @@ class Config:
     """Configuration class that reads from environment variables with fallback to defaults"""
     
     # Helper method to get env var with type conversion
-    @staticmethod
     def _get_env(key, default, type_func=str):
         value = os.getenv(key)
         if value is None:

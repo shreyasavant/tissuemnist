@@ -151,3 +151,4 @@ transformers_cache/
 # Keep directory structure but ignore data files
 mnist_dataset/*
 !mnist_dataset/.keep
+Untitled.rtf
