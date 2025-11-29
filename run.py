@@ -31,6 +31,7 @@ from train_comparative_study import (
     Config, set_seed, load_tissuemnist, create_models,
     train_model, evaluate_with_medmnist, evaluate_with_metrics,
     save_single_model_results, plot_training_curves, plot_accuracy_curves,
+    save_performance_table, save_sample_images, save_publication_figures,
     TISSUEMNIST_NUM_CLASSES, TISSUEMNIST_LABELS
 )
 
@@ -104,14 +105,16 @@ def run_single_model(model_name, config, train_loader, val_loader, test_loader, 
     model_name_clean = model_name.replace(' ', '_').replace('/', '_').lower()
     checkpoint_dir = os.path.join('checkpoints', model_name_clean)
     results_dir = os.path.join('checkpoints', model_name_clean, 'results')
+    paper_dir = os.path.join('checkpoints', model_name_clean, 'results', 'paper_deliverables')
     os.makedirs(checkpoint_dir, exist_ok=True)
     os.makedirs(results_dir, exist_ok=True)
+    os.makedirs(paper_dir, exist_ok=True)
     
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     
     try:
         # Create the model
-        print(f"\n[1/6] Creating {model_name}...")
+        print(f"\n[1/7] Creating {model_name}...")
         models = create_models(config)
         if model_name not in models:
             raise ValueError(f"Model {model_name} not found in available models")
@@ -124,7 +127,7 @@ def run_single_model(model_name, config, train_loader, val_loader, test_loader, 
         criterion = nn.CrossEntropyLoss()
         
         # Train model
-        print(f"\n[2/6] Training {model_name}...")
+        print(f"\n[2/7] Training {model_name}...")
         history = train_model(
             model, model_name, train_loader, val_loader, test_loader,
             config, criterion
@@ -132,7 +135,7 @@ def run_single_model(model_name, config, train_loader, val_loader, test_loader, 
         print(f"✓ Training complete for {model_name}")
         
         # Evaluate with MedMNIST evaluator
-        print(f"\n[3/6] Evaluating {model_name} with MedMNIST evaluator...")
+        print(f"\n[3/7] Evaluating {model_name} with MedMNIST evaluator...")
         metrics = evaluate_with_medmnist(
             model, model_name, test_loader, 'test',
             config.DEVICE, dataset_path
@@ -140,14 +143,14 @@ def run_single_model(model_name, config, train_loader, val_loader, test_loader, 
         print(f"✓ MedMNIST evaluation complete")
         
         # Get confusion matrix and classification report
-        print(f"\n[4/6] Computing detailed metrics for {model_name}...")
+        print(f"\n[4/7] Computing detailed metrics for {model_name}...")
         cm, report = evaluate_with_metrics(
             model, test_loader, config.DEVICE, TISSUEMNIST_NUM_CLASSES
         )
         print(f"✓ Detailed metrics computed")
         
         # Save results
-        print(f"\n[5/6] Saving results and deliverables for {model_name}...")
+        print(f"\n[5/7] Saving results and deliverables for {model_name}...")
         # Create a config-like object with RESULTS_DIR and other needed attributes
         results_config = type('Config', (), {
             'RESULTS_DIR': results_dir,
@@ -163,8 +166,50 @@ def run_single_model(model_name, config, train_loader, val_loader, test_loader, 
         # Save visualizations
         save_model_visualizations(model_name, history, results_dir, timestamp, config)
         
+        # Save paper deliverables
+        print(f"\n[6/7] Saving paper deliverables for {model_name}...")
+        # Check if paper deliverables should be saved
+        save_deliverables = getattr(config, 'SAVE_PAPER_DELIVERABLES', True)
+        
+        if save_deliverables:
+            # Create config for paper deliverables with correct paths
+            paper_config = type('Config', (), {
+                'RESULTS_DIR': results_dir,
+                'PAPER_DIR': 'paper_deliverables',
+                'NUM_EPOCHS': config.NUM_EPOCHS
+            })()
+            
+            # Create single-model dicts for deliverables functions
+            single_history = {model_name: history}
+            single_metrics = {model_name: metrics}
+            
+            # Save performance table (single model version)
+            try:
+                save_performance_table(single_history, single_metrics, paper_config, timestamp)
+                print(f"  ✓ Performance table saved")
+            except Exception as e:
+                print(f"  ⚠ Warning: Could not save performance table: {e}")
+            
+            # Save sample images
+            try:
+                save_sample_images(train_loader, paper_config, timestamp)
+                print(f"  ✓ Sample images saved")
+            except Exception as e:
+                print(f"  ⚠ Warning: Could not save sample images: {e}")
+            
+            # Save publication figures (single model version)
+            try:
+                save_publication_figures(single_history, paper_config, timestamp)
+                print(f"  ✓ Publication figures saved")
+            except Exception as e:
+                print(f"  ⚠ Warning: Could not save publication figures: {e}")
+            
+            print(f"✓ Paper deliverables saved to {paper_dir}")
+        else:
+            print(f"⚠ Paper deliverables disabled (SAVE_PAPER_DELIVERABLES=False)")
+        
         # Save checkpoint
-        print(f"\n[6/6] Saving checkpoint for {model_name}...")
+        print(f"\n[7/7] Saving checkpoint for {model_name}...")
         save_model_checkpoint(model, model_name, history, config, checkpoint_dir, timestamp)
         
         # Cleanup: Move model to CPU
