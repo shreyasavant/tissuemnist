@@ -42,8 +42,15 @@ def save_model_checkpoint(model, model_name, history, config, checkpoint_dir, ti
     
     # Get state_dict and move to CPU
     state_dict = model.state_dict()
-    cpu_state_dict = {k: v.cpu() if isinstance(v, torch.Tensor) else v 
-                     for k, v in state_dict.items()}
+    
+    # Filter out thop-related keys (total_ops, total_params) that are added during model analysis
+    # These are not part of the actual model weights and cause errors when loading
+    filtered_state_dict = {}
+    for k, v in state_dict.items():
+        if 'total_ops' not in k and 'total_params' not in k:
+            filtered_state_dict[k] = v.cpu() if isinstance(v, torch.Tensor) else v
+    
+    cpu_state_dict = filtered_state_dict
     
     checkpoint = {
         'model_state_dict': cpu_state_dict,

@@ -1199,9 +1199,14 @@ def save_models(models, all_histories, config):
             # Get state_dict and move to CPU (important for CUDA models)
             # This ensures models can be loaded on any device later
             state_dict = model.state_dict()
-            # Move all tensors in state_dict to CPU
-            cpu_state_dict = {k: v.cpu() if isinstance(v, torch.Tensor) else v 
-                            for k, v in state_dict.items()}
+            # Filter out thop-related keys (total_ops, total_params) that are added during model analysis
+            # These are not part of the actual model weights and cause errors when loading
+            filtered_state_dict = {}
+            for k, v in state_dict.items():
+                if 'total_ops' not in k and 'total_params' not in k:
+                    filtered_state_dict[k] = v.cpu() if isinstance(v, torch.Tensor) else v
+            
+            cpu_state_dict = filtered_state_dict
             
             # Prepare checkpoint data
             checkpoint = {
