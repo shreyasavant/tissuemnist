@@ -28,8 +28,8 @@ import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
 
-# Import from train_comparative_study
-from train_comparative_study import (
+# Import from utils
+from utils import (
     Config, set_seed, load_tissuemnist, create_models,
     train_model, evaluate_with_medmnist, evaluate_with_metrics,
     save_single_model_results, plot_training_curves, plot_accuracy_curves,

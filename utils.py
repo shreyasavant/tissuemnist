@@ -41,7 +41,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import models from tissue_main.py
-from tissue_main import (
+from models import (
     ResNet18Classifier,
     ResNet50Classifier,
     DenseNet121Classifier,

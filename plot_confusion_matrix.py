@@ -1,6 +1,6 @@
 """
 Load Model Checkpoint and Plot Confusion Matrix
-==============================================
+
 This script loads a saved .pt checkpoint file, recreates the model,
 runs inference on the test set, and plots a confusion matrix.
 
@@ -28,15 +28,14 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
 # Import from train_comparative_study
-from train_comparative_study import (
+from utils import (
     Config, load_tissuemnist, create_models,
     evaluate_with_metrics, TISSUEMNIST_NUM_CLASSES, TISSUEMNIST_LABELS
 )
-from tissue_main import (
+from models import (
     ResNet18Classifier, ResNet50Classifier, DenseNet121Classifier,
     EfficientNetClassifier, ViTClassifier, SwinTransformerClassifier
 )
-
 
 def load_checkpoint(checkpoint_path, device):
     """Load checkpoint from .pt file"""
