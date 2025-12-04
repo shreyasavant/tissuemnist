@@ -14,6 +14,7 @@ Recipes/Usage Examples:
        python run.py DenseNet121
        python run.py EfficientNet-B0
        python run.py "ViT-B/16"
+       python run.py DeiT-Tiny
        python run.py DeiT-Base
        python run.py Swin-Tiny
        python run.py Swin-Base

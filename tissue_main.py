@@ -103,6 +103,7 @@ if __name__ == '__main__':
         'DenseNet121': DenseNet121Classifier(num_classes=8, pretrained=USE_PRETRAINED).to(device),
         'EfficientNet-B0': EfficientNetClassifier(num_classes=8, pretrained=USE_PRETRAINED).to(device),
         'ViT-B/16': ViTClassifier(num_classes=8, model_name="google/vit-base-patch16-224", pretrained=USE_PRETRAINED).to(device),
+        'DeiT-Tiny': ViTClassifier(num_classes=8, model_name="facebook/deit-tiny-patch16-224", pretrained=USE_PRETRAINED).to(device),
         'DeiT-Base': ViTClassifier(num_classes=8, model_name="facebook/deit-base-distilled-patch16-224", pretrained=USE_PRETRAINED).to(device),
         'Swin-Tiny': SwinTransformerClassifier(num_classes=8, model_name="microsoft/swin-tiny-patch4-window7-224", pretrained=USE_PRETRAINED).to(device),
         'Swin-Base': SwinTransformerClassifier(num_classes=8, model_name="microsoft/swin-base-patch4-window7-224", pretrained=USE_PRETRAINED).to(device),
