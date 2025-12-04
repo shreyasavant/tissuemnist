@@ -4,12 +4,18 @@ Load Model Checkpoint and Plot Confusion Matrix
 This script loads a saved .pt checkpoint file, recreates the model,
 runs inference on the test set, and plots a confusion matrix.
 
+Supported Models:
+    - CNN: ResNet18, ResNet50, DenseNet121, EfficientNet-B0
+    - Transformers: ViT-B/16, DeiT-Base (facebook/deit-base-distilled-patch16-224), 
+                    Swin-Tiny, Swin-Base
+
 Usage:
     python plot_confusion_matrix.py <checkpoint_path> [--split test|val|train]
     
 Example:
     python plot_confusion_matrix.py checkpoints/resnet18/best_model.pt
     python plot_confusion_matrix.py checkpoints/vit_b_16/best_model.pt --split test
+    python plot_confusion_matrix.py checkpoints/deit_base/best_model.pt
 """
 
 import os
@@ -80,6 +86,13 @@ def recreate_model(model_name, checkpoint, device):
             model_name="google/vit-base-patch16-224",
             pretrained=checkpoint.get('config', {}).get('use_pretrained', True)
         )
+    elif model_name in ['DeiT-Base', 'DeiT', 'facebook/deit-base-distilled-patch16-224']:
+        # DeiT (Data-efficient Image Transformer) is compatible with ViT architecture
+        model = ViTClassifier(
+            num_classes=num_classes,
+            model_name="facebook/deit-base-distilled-patch16-224",
+            pretrained=checkpoint.get('config', {}).get('use_pretrained', True)
+        )
     elif model_name == 'Swin-Tiny':
         model = SwinTransformerClassifier(
             num_classes=num_classes,
@@ -93,7 +106,16 @@ def recreate_model(model_name, checkpoint, device):
             pretrained=checkpoint.get('config', {}).get('use_pretrained', True)
         )
     else:
-        raise ValueError(f"Unknown model name: {model_name}")
+        # Try to detect if it's a DeiT model from the model name or checkpoint
+        if 'deit' in model_name.lower() or 'distilled' in model_name.lower():
+            print(f"  Detected DeiT model from name: {model_name}")
+            model = ViTClassifier(
+                num_classes=num_classes,
+                model_name="facebook/deit-base-distilled-patch16-224",
+                pretrained=checkpoint.get('config', {}).get('use_pretrained', True)
+            )
+        else:
+            raise ValueError(f"Unknown model name: {model_name}. Supported models: ResNet18, ResNet50, DenseNet121, EfficientNet-B0, ViT-B/16, DeiT-Base, Swin-Tiny, Swin-Base")
     
     # Load state dict (filter out any thop-related keys if present)
     state_dict = checkpoint['model_state_dict']
