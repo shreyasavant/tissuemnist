@@ -1,6 +1,5 @@
 """
 Comparative Study Training and Testing Framework for TissueMNIST
-================================================================
 This script trains and evaluates multiple CNN and Transformer models
 on TissueMNIST dataset (8 classes) for comparative analysis.
 

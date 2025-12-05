@@ -59,7 +59,7 @@ A comprehensive comparative study framework for evaluating CNN and Transformer-b
 
 - Python 3.8+
 - PyTorch 2.0.0+
-- CUDA-capable GPU (optional, but recommended for transformer models)
+- CUDA-capable GPU (optional, recommended for transformer models) (Our Models are saved with CUDA)
 
 ## 🚀 Installation
 
@@ -110,6 +110,60 @@ MODELS_TO_TRAIN=ResNet18,ResNet50,DenseNet121,EfficientNet-B0,ViT-B/16,DeiT-Tiny
 The dataset will be automatically downloaded on first run, or you can manually download it. The script looks for the dataset in:
 - `./mnist_dataset/` (relative to project root)
 - `./dataset/` (fallback)
+
+### 6. HPC Setup (SLURM-based Systems)
+
+For High-Performance Computing (HPC) environments with SLURM, follow these steps:
+
+**Note**: These instructions are for systems using `csh`/`tcsh` shell. For `bash`/`zsh`, use `export` instead of `setenv`.
+
+```bash
+# 1. Request an interactive GPU node
+salloc --mem=50G --gpus=1
+
+# 2. Create a scratch directory for the project
+mkdir /speed-scratch/$USER/tissuemnist
+
+# 3. Navigate to the scratch directory
+cd /speed-scratch/$USER/tissuemnist
+
+# 4. Load Python module (adjust version as needed)
+module load python/3.12.1/default
+
+# 5. Create and set temporary directory (important for pip installs)
+mkdir -p /speed-scratch/$USER/tmp
+setenv TMPDIR /speed-scratch/$USER/tmp
+setenv TMP /speed-scratch/$USER/tmp
+
+# 6. Create virtual environment
+python -m venv venv
+
+# 7. Activate virtual environment (for csh/tcsh)
+source ./venv/bin/activate.csh
+
+# 8. Install dependencies
+pip install -r requirements.txt
+
+# 9. Deactivate and exit when done
+deactivate
+exit
+```
+
+**For bash/zsh users**, replace steps 5 and 7 with:
+```bash
+# Step 5 (bash/zsh)
+export TMPDIR=/speed-scratch/$USER/tmp
+export TMP=/speed-scratch/$USER/tmp
+
+# Step 7 (bash/zsh)
+source ./venv/bin/activate
+```
+
+**Important Notes for HPC:**
+- Use scratch space (`/speed-scratch/`) for better I/O performance
+- Set `TMPDIR` and `TMP` to avoid filling home directory during pip installs
+- Adjust memory (`--mem`) and GPU count (`--gpus`) based on your needs
+- After setup, you can submit batch jobs using `sbatch` with the activated environment
 
 ## 🏃 Quick Start
 
@@ -483,7 +537,7 @@ If you get an error like "Model 'DeiT-Base' not in MODELS_TO_TRAIN":
 
 1. Check your `.env` file and ensure all models are listed:
    ```bash
-   MODELS_TO_TRAIN=ResNet18,ResNet50,DenseNet121,EfficientNet-B0,ViT-B/16,DeiT-Tiny,DeiT-Base,Swin-Tiny,Swin-Base
+   MODELS_TO_TRAIN=ResNet18,ResNet50,DenseNet121,EfficientNet-B0,ViT-B/16,DeiT-Tiny,Swin-Tiny
    ```
 
 2. Or remove the `MODELS_TO_TRAIN` line from `.env` to use defaults
@@ -542,10 +596,6 @@ If you encounter "Unexpected key(s) in state_dict" when loading checkpoints:
 ## 🤝 Contributing
 
 Feel free to submit issues, fork the repository, and create pull requests for any improvements.
-
-## 📄 License
-
-[Add your license information here]
 
 ## 🙏 Acknowledgments
 
