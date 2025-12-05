@@ -362,7 +362,10 @@ def create_models(config):
         ).to(config.DEVICE)
         # Skip FLOPs for transformer models (too slow)
         flops, params = analyze_model(model, config.DEVICE, skip_flops=False)
-        print(f"✓ Parameters: {params:.2f}M")
+        if flops is not None:
+            print(f"✓ FLOPs: {flops:.2f}B, Parameters: {params:.2f}M")
+        else:
+            print(f"✓ Parameters: {params:.2f}M")
         models['ViT-B/16'] = model
     
     if 'DeiT-Tiny' in config.MODELS_TO_TRAIN:
@@ -375,7 +378,10 @@ def create_models(config):
         ).to(config.DEVICE)
         # Skip FLOPs for transformer models (too slow)
         flops, params = analyze_model(model, config.DEVICE, skip_flops=False)
-        print(f"✓ Parameters: {params:.2f}M")
+        if flops is not None:
+            print(f"✓ FLOPs: {flops:.2f}B, Parameters: {params:.2f}M")
+        else:
+            print(f"✓ Parameters: {params:.2f}M")
         models['DeiT-Tiny'] = model
     
     if 'DeiT-Base' in config.MODELS_TO_TRAIN:
@@ -388,7 +394,10 @@ def create_models(config):
         ).to(config.DEVICE)
         # Skip FLOPs for transformer models (too slow)
         flops, params = analyze_model(model, config.DEVICE, skip_flops=False)
-        print(f"✓ Parameters: {params:.2f}M")
+        if flops is not None:
+            print(f"✓ FLOPs: {flops:.2f}B, Parameters: {params:.2f}M")
+        else:
+            print(f"✓ Parameters: {params:.2f}M")
         models['DeiT-Base'] = model
     
     if 'Swin-Tiny' in config.MODELS_TO_TRAIN:
@@ -401,7 +410,10 @@ def create_models(config):
         ).to(config.DEVICE)
         # Skip FLOPs for transformer models (too slow)
         flops, params = analyze_model(model, config.DEVICE, skip_flops=False)
-        print(f"✓ Parameters: {params:.2f}M")
+        if flops is not None:
+            print(f"✓ FLOPs: {flops:.2f}B, Parameters: {params:.2f}M")
+        else:
+            print(f"✓ Parameters: {params:.2f}M")
         models['Swin-Tiny'] = model
     
     if 'Swin-Base' in config.MODELS_TO_TRAIN:
@@ -414,7 +426,10 @@ def create_models(config):
         ).to(config.DEVICE)
         # Skip FLOPs for transformer models (too slow)
         flops, params = analyze_model(model, config.DEVICE, skip_flops=False)
-        print(f"✓ Parameters: {params:.2f}M")
+        if flops is not None:
+            print(f"✓ FLOPs: {flops:.2f}B, Parameters: {params:.2f}M")
+        else:
+            print(f"✓ Parameters: {params:.2f}M")
         models['Swin-Base'] = model
     
     print()  # Empty line after all models created
