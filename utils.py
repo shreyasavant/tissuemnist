@@ -266,22 +266,27 @@ def analyze_model(model, device, input_shape=(1, 3, 224, 224), skip_flops=False)
         model: Model to analyze
         device: Device to run analysis on
         input_shape: Input shape for FLOPs calculation
-        skip_flops: If True, skip FLOPs calculation (faster, only count parameters)
+        skip_flops: If True, skip FLOPs calculation (faster, only count parameters).
+                   Default is False - FLOPs are calculated for all models by default.
+    
+    Returns:
+        tuple: (flops_in_billions, params_in_millions) or (None, params_in_millions) if FLOPs calculation fails
     """
     # Count parameters (always fast)
     params = sum(p.numel() for p in model.parameters())
 
-    # Skip FLOPs if requested (useful for transformer models which are slow)
+    # Skip FLOPs if explicitly requested
     if skip_flops:
         return None, params / 1e6
     
-    # Try to calculate FLOPs (can be slow for large models)
+    # Calculate FLOPs for all models (may be slow for large transformer models)
     try:
         dummy_input = torch.randn(input_shape).to(device)
         flops, params_calc = profile(model, inputs=(dummy_input,), verbose=False)
         return flops / 1e9, params / 1e6  # Convert to billions and millions
     except Exception as e:
         # Fallback to simple parameter count if FLOPs calculation fails
+        print(f"  ⚠ Warning: FLOPs calculation failed for {type(model).__name__}: {e}")
         return None, params / 1e6
 
 # Model Initialization
@@ -358,8 +363,7 @@ def create_models(config):
             model_name="google/vit-base-patch16-224",
             pretrained=config.USE_PRETRAINED
         ).to(config.DEVICE)
-        # Skip FLOPs for transformer models (too slow)
-        flops, params = analyze_model(model, config.DEVICE, skip_flops=False)
+        flops, params = analyze_model(model, config.DEVICE)
         if flops is not None:
             print(f"✓ FLOPs: {flops:.2f}B, Parameters: {params:.2f}M")
         else:
@@ -374,8 +378,7 @@ def create_models(config):
             model_name="facebook/deit-tiny-patch16-224",
             pretrained=config.USE_PRETRAINED
         ).to(config.DEVICE)
-        # Skip FLOPs for transformer models (too slow)
-        flops, params = analyze_model(model, config.DEVICE, skip_flops=False)
+        flops, params = analyze_model(model, config.DEVICE)
         if flops is not None:
             print(f"✓ FLOPs: {flops:.2f}B, Parameters: {params:.2f}M")
         else:
@@ -390,8 +393,7 @@ def create_models(config):
             model_name="microsoft/swin-tiny-patch4-window7-224",
             pretrained=config.USE_PRETRAINED
         ).to(config.DEVICE)
-        # Skip FLOPs for transformer models (too slow)
-        flops, params = analyze_model(model, config.DEVICE, skip_flops=False)
+        flops, params = analyze_model(model, config.DEVICE)
         if flops is not None:
             print(f"✓ FLOPs: {flops:.2f}B, Parameters: {params:.2f}M")
         else:

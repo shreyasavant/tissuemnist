@@ -468,7 +468,7 @@ For visualizing and analyzing saved results.
 
 Each model's computational complexity is analyzed during initialization:
 
-- **FLOPs**: Floating Point Operations (in billions) - skipped for transformer models (too slow)
+- **FLOPs**: Floating Point Operations (in billions) - calculated for all models
 - **Parameters**: Total trainable parameters (in millions)
 
 This information is printed during model creation and helps understand the computational cost of each architecture.
@@ -581,7 +581,7 @@ If you encounter "Unexpected key(s) in state_dict" when loading checkpoints:
 - **Mixed Precision**: Transformer models (ViT, DeiT, Swin) automatically use FP16 mixed precision for faster training
 - **Reproducibility**: Random seed is set to 42 for reproducible results
 - **Early Stopping**: Automatically stops training when validation loss stops improving
-- **Model Analysis**: FLOPs and parameter counts are calculated and displayed for each model (FLOPs skipped for transformers)
+- **Model Analysis**: FLOPs and parameter counts are calculated and displayed for each model
 - **Training Time**: CNNs are faster, Transformers take longer but benefit from mixed precision
 - **Memory Management**: Models are moved to CPU and GPU cache is cleared after each model to prevent memory accumulation
 
