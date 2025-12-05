@@ -1,6 +1,4 @@
-# ============================================================================
 # Python
-# ============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -25,73 +23,35 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# ============================================================================
 # Virtual Environments
-# ============================================================================
 venv/
+env/
+ENV/
+.venv/
 
-# ============================================================================
-# Model Files
-# ============================================================================
-*.pt
-*.pth
-*.pkl
-*.ckpt
-*.h5
-*.hdf5
-*.pb
-*.onnx
-*.tflite
-*.safetensors
 saved_models/
 saved_models_comparative/
-checkpoints/
-models/
+models/  
 
-# ============================================================================
-# Dataset Directories
-# ============================================================================
-mnist_dataset/
-dataset/
-datasets/
-data/
-*.npz
-*.npy
-*.h5
-*.hdf5
-*.csv
-*.tsv
-*.parquet
+dataset/ 
+datasets/  
+data/  
 
-# ============================================================================
-# Results and Outputs
-# ============================================================================
-results/
-results_comparative/
-outputs/
+results_comparative/ 
+outputs/ 
+
 logs/
 *.log
-runs/
+runs/  # TensorBoard logs
 tensorboard_logs/
 wandb/
+*.tfevents.*
 
-# ============================================================================
-# Research Paper Deliverables
-# ============================================================================
-paper_deliverables/
-figures/
-tables/
-sample_images/
-
-# ============================================================================
 # Jupyter Notebooks
-# ============================================================================
 .ipynb_checkpoints/
 *.ipynb_checkpoints
 
-# ============================================================================
 # IDE and Editor Files
-# ============================================================================
 .vscode/
 .idea/
 *.swp
@@ -102,17 +62,15 @@ Thumbs.db
 *.sublime-project
 *.sublime-workspace
 
-# ============================================================================
-# Environment Variables
-# ============================================================================
+# Environment Variables 
 .env
 .env.local
 .env.*.local
 *.env
+# But keep .env.example
+!.env.example
 
-# ============================================================================
 # Temporary Files
-# ============================================================================
 *.tmp
 *.temp
 *.bak
@@ -126,9 +84,7 @@ htmlcov/
 .dmypy.json
 dmypy.json
 
-# ============================================================================
 # OS Files
-# ============================================================================
 .DS_Store
 .DS_Store?
 ._*
@@ -138,17 +94,42 @@ ehthumbs.db
 Thumbs.db
 Desktop.ini
 
-# ============================================================================
-# HuggingFace Cache
-# ============================================================================
-.cache/
+# HuggingFace Cache 
 .huggingface/
 transformers_cache/
 
-# ============================================================================
-# Specific Project Files (keep .keep files)
-# ============================================================================
-# Keep directory structure but ignore data files
-mnist_dataset/*
-!mnist_dataset/.keep
+# Large Binary Files 
+# Ignore large binary files, but explicitly allow those in checkpoints/ and mnist_dataset/
+*.pkl
+!checkpoints/**/*.pkl
+*.h5
+!checkpoints/**/*.h5
+*.hdf5
+# !checkpoints/**/*.hdf5
+*.pb
+*.onnx
+*.tflite
+*.safetensors
+!checkpoints/**/*.safetensors
+
+# Project-Specific Exclusions
 Untitled.rtf
+
+checkpoints/
+# !checkpoints/**
+
+
+# Allow all file types in checkpoints/ and mnist_dataset/ for submission
+# !checkpoints/**/*.pt
+# !checkpoints/**/*.pth
+# !checkpoints/**/*.json
+# !checkpoints/**/*.png
+# !checkpoints/**/*.pdf
+# !checkpoints/**/*.jpg
+# !checkpoints/**/*.jpeg
+# !checkpoints/**/*.csv
+# !checkpoints/**/*.tex
+# !checkpoints/**/*.txt
+# !mnist_dataset/**/*.npz
+# !mnist_dataset/**/*.npy
+mnist_dataset/tissuemnist_224.npz

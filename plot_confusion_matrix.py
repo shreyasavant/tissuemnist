@@ -13,9 +13,8 @@ Usage:
     
 Example:
     python plot_confusion_matrix.py checkpoints/resnet18/best_model.pt
-    python plot_confusion_matrix.py checkpoints/vit_b_16/best_model.pt --split test
-    python plot_confusion_matrix.py checkpoints/deit_tiny/best_model.pt
-    python plot_confusion_matrix.py checkpoints/deit_base/best_model.pt
+    python plot_confusion_matrix.py checkpoints/vit-b_16/best_model.pt --split test
+    python plot_confusion_matrix.py checkpoints/deit-tiny/best_model.pt
 """
 
 import os

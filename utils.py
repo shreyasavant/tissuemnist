@@ -361,7 +361,7 @@ def create_models(config):
             pretrained=config.USE_PRETRAINED
         ).to(config.DEVICE)
         # Skip FLOPs for transformer models (too slow)
-        flops, params = analyze_model(model, config.DEVICE, skip_flops=True)
+        flops, params = analyze_model(model, config.DEVICE, skip_flops=False)
         print(f"✓ Parameters: {params:.2f}M")
         models['ViT-B/16'] = model
     
@@ -374,7 +374,7 @@ def create_models(config):
             pretrained=config.USE_PRETRAINED
         ).to(config.DEVICE)
         # Skip FLOPs for transformer models (too slow)
-        flops, params = analyze_model(model, config.DEVICE, skip_flops=True)
+        flops, params = analyze_model(model, config.DEVICE, skip_flops=False)
         print(f"✓ Parameters: {params:.2f}M")
         models['DeiT-Tiny'] = model
     
@@ -387,7 +387,7 @@ def create_models(config):
             pretrained=config.USE_PRETRAINED
         ).to(config.DEVICE)
         # Skip FLOPs for transformer models (too slow)
-        flops, params = analyze_model(model, config.DEVICE, skip_flops=True)
+        flops, params = analyze_model(model, config.DEVICE, skip_flops=False)
         print(f"✓ Parameters: {params:.2f}M")
         models['DeiT-Base'] = model
     
@@ -400,7 +400,7 @@ def create_models(config):
             pretrained=config.USE_PRETRAINED
         ).to(config.DEVICE)
         # Skip FLOPs for transformer models (too slow)
-        flops, params = analyze_model(model, config.DEVICE, skip_flops=True)
+        flops, params = analyze_model(model, config.DEVICE, skip_flops=False)
         print(f"✓ Parameters: {params:.2f}M")
         models['Swin-Tiny'] = model
     
@@ -413,7 +413,7 @@ def create_models(config):
             pretrained=config.USE_PRETRAINED
         ).to(config.DEVICE)
         # Skip FLOPs for transformer models (too slow)
-        flops, params = analyze_model(model, config.DEVICE, skip_flops=True)
+        flops, params = analyze_model(model, config.DEVICE, skip_flops=False)
         print(f"✓ Parameters: {params:.2f}M")
         models['Swin-Base'] = model
     
