@@ -24,7 +24,7 @@ A comprehensive comparative study framework for evaluating CNN and Transformer-b
 
 - **Multiple Model Architectures**: 
   - **CNN Models**: ResNet18, ResNet50, DenseNet121, EfficientNet-B0
-  - **Transformer Models**: ViT-B/16, DeiT-Tiny, DeiT-Base, Swin-Tiny, Swin-Base
+  - **Transformer Models**: ViT-B/16, DeiT-Tiny,Swin-Tiny
   
 - **Comprehensive Evaluation**:
   - Training, validation, and test metrics
@@ -102,7 +102,7 @@ DATASET_PATH=mnist_dataset
 BATCH_SIZE=128
 NUM_EPOCHS=10
 LEARNING_RATE=0.001
-MODELS_TO_TRAIN=ResNet18,ResNet50,DenseNet121,EfficientNet-B0,ViT-B/16,DeiT-Tiny,DeiT-Base,Swin-Tiny,Swin-Base
+MODELS_TO_TRAIN=ResNet18,ResNet50,DenseNet121,EfficientNet-B0,ViT-B/16,DeiT-Tiny,Swin-Tiny
 ```
 
 ### 5. Download Dataset
@@ -181,9 +181,6 @@ python run.py "ViT-B/16"
 # Train DeiT-Tiny
 python run.py DeiT-Tiny
 
-# Train DeiT-Base
-python run.py DeiT-Base
-
 # Train all models sequentially
 python run.py
 ```
@@ -240,9 +237,7 @@ Available models:
 **Transformer Models:**
 - `ViT-B/16`: Vision Transformer (ViT-Base/16)
 - `DeiT-Tiny`: Data-efficient Image Transformer (Tiny variant)
-- `DeiT-Base`: Data-efficient Image Transformer (Base variant, distilled)
 - `Swin-Tiny`: Swin Transformer (Tiny variant)
-- `Swin-Base`: Swin Transformer (Base variant)
 
 **Note**: Transformer models (ViT, DeiT, Swin) automatically use mixed precision training (FP16) for faster training and reduced memory usage.
 
@@ -272,9 +267,7 @@ class Config:
         'EfficientNet-B0',
         'ViT-B/16',
         'DeiT-Tiny',
-        'DeiT-Base',
-        'Swin-Tiny',
-        'Swin-Base'
+        'Swin-Tiny'
     ]
 ```
 
@@ -283,7 +276,7 @@ class Config:
 To train only specific models, set the `MODELS_TO_TRAIN` environment variable in your `.env` file:
 
 ```bash
-MODELS_TO_TRAIN=ResNet50,ViT-B/16,DeiT-Base
+MODELS_TO_TRAIN=ResNet18,ViT-B/16,DeiT-Tiny
 ```
 
 Or modify the default list in `utils.py`.
@@ -372,7 +365,6 @@ Train models individually with all outputs saved in model-specific directories.
 python run.py ResNet18
 python run.py "ViT-B/16"
 python run.py DeiT-Tiny
-python run.py DeiT-Base
 
 # Train all models sequentially
 python run.py
@@ -410,7 +402,7 @@ python plot_confusion_matrix.py checkpoints/swin_tiny/best_model.pt --display
 
 **Supported Models:**
 - All CNN models: ResNet18, ResNet50, DenseNet121, EfficientNet-B0
-- All Transformer models: ViT-B/16, DeiT-Tiny, DeiT-Base, Swin-Tiny, Swin-Base
+- All Transformer models: ViT-B/16, DeiT-Tiny, Swin-Tiny
 
 ### `utils.py` - Main Training Utilities
 
@@ -533,7 +525,7 @@ If you encounter GPU memory issues:
 
 ### Model Not Found Error
 
-If you get an error like "Model 'DeiT-Base' not in MODELS_TO_TRAIN":
+If you get an error like "Model 'DeiT-Tiny' not in MODELS_TO_TRAIN":
 
 1. Check your `.env` file and ensure all models are listed:
    ```bash

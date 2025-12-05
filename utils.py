@@ -5,7 +5,7 @@ on TissueMNIST dataset (8 classes) for comparative analysis.
 
 Models included:
 - CNN: ResNet18, ResNet50, DenseNet121, EfficientNet-B0
-- Transformers: ViT-B/16, DeiT-Tiny, DeiT-Base, Swin-Tiny, Swin-Base
+- Transformers: ViT-B/16, DeiT-Tiny, Swin-Tiny
 
 Optimized for TissueMNIST dataset.
 """
@@ -136,9 +136,7 @@ class Config:
             'EfficientNet-B0',
             'ViT-B/16',
             'DeiT-Tiny',
-            'DeiT-Base',
-            'Swin-Tiny',
-            'Swin-Base'
+            'Swin-Tiny'
         ]
     
     # DataLoader settings
@@ -384,22 +382,6 @@ def create_models(config):
             print(f"✓ Parameters: {params:.2f}M")
         models['DeiT-Tiny'] = model
     
-    if 'DeiT-Base' in config.MODELS_TO_TRAIN:
-        model_count += 1
-        print(f"  [{model_count}/{total_models}] Creating DeiT-Base...", end=' ', flush=True)
-        model = ViTClassifier(
-            num_classes=num_classes,
-            model_name="facebook/deit-base-distilled-patch16-224",
-            pretrained=config.USE_PRETRAINED
-        ).to(config.DEVICE)
-        # Skip FLOPs for transformer models (too slow)
-        flops, params = analyze_model(model, config.DEVICE, skip_flops=False)
-        if flops is not None:
-            print(f"✓ FLOPs: {flops:.2f}B, Parameters: {params:.2f}M")
-        else:
-            print(f"✓ Parameters: {params:.2f}M")
-        models['DeiT-Base'] = model
-    
     if 'Swin-Tiny' in config.MODELS_TO_TRAIN:
         model_count += 1
         print(f"  [{model_count}/{total_models}] Creating Swin-Tiny...", end=' ', flush=True)
@@ -415,22 +397,6 @@ def create_models(config):
         else:
             print(f"✓ Parameters: {params:.2f}M")
         models['Swin-Tiny'] = model
-    
-    if 'Swin-Base' in config.MODELS_TO_TRAIN:
-        model_count += 1
-        print(f"  [{model_count}/{total_models}] Creating Swin-Base...", end=' ', flush=True)
-        model = SwinTransformerClassifier(
-            num_classes=num_classes,
-            model_name="microsoft/swin-base-patch4-window7-224",
-            pretrained=config.USE_PRETRAINED
-        ).to(config.DEVICE)
-        # Skip FLOPs for transformer models (too slow)
-        flops, params = analyze_model(model, config.DEVICE, skip_flops=False)
-        if flops is not None:
-            print(f"✓ FLOPs: {flops:.2f}B, Parameters: {params:.2f}M")
-        else:
-            print(f"✓ Parameters: {params:.2f}M")
-        models['Swin-Base'] = model
     
     print()  # Empty line after all models created
     return models
@@ -546,7 +512,7 @@ def train_model(model, model_name, train_loader, val_loader, test_loader, config
     print(f"{'='*70}")
     
     # Determine if model should use mixed precision (ViT, DeiT, and Swin models)
-    use_mixed_precision = model_name in ['ViT-B/16', 'DeiT-Tiny', 'DeiT-Base', 'Swin-Tiny', 'Swin-Base']
+    use_mixed_precision = model_name in ['ViT-B/16', 'DeiT-Tiny', 'Swin-Tiny']
     if use_mixed_precision:
         print("Using mixed precision training (FP16) for faster training")
     
